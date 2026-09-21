@@ -1,19 +1,21 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
+header('X-DayPilot-Version: 2.1.0');
 
 $action = $_GET['action'] ?? 'boot';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.1.0','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
         $u=user();
         if ($u) ensure_v2_schema();
         $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
+            'version'=>'2.1.0',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -285,8 +287,9 @@ try {
 
     json_response(['error'=>'Unknown action.'],404);
 } catch (Throwable $e) {
-    error_log('[DayPilot] '.$e->getMessage()."\n".$e->getTraceAsString());
-    json_response(['error'=>'Server error. Check the DayPilot server log for details.'],500);
+    $requestId=bin2hex(random_bytes(6));
+    error_log('[DayPilot]['.$requestId.'] '.$e->getMessage()."\n".$e->getTraceAsString());
+    json_response(['error'=>'Server error. Reference: '.$requestId],500);
 }
 
 function get_task(PDO $pdo,string $uid,string $id): array { $st=$pdo->prepare('SELECT id,title,description,status,priority,due_at,start_at,end_at,estimated_minutes,completed_at,created_at,updated_at FROM tasks WHERE id=? AND user_id=?');$st->execute([$id,$uid]);return $st->fetch() ?: []; }

@@ -255,8 +255,10 @@ function ai_workspace_context(array $u, string $message = ''): array {
 
 function fetch_recent_activity(string $uid, int $days = 7, int $limit = 30): array {
     $days=max(1,min(90,$days));$limit=max(1,min(100,$limit));
-    $st=db()->prepare('SELECT action,entity_type,entity_id,metadata,created_at FROM activity_log WHERE user_id=? AND created_at>=DATE_SUB(NOW(), INTERVAL ? DAY) ORDER BY created_at DESC LIMIT '.$limit);
-    $st->execute([$uid,$days]);
+    // Interpolate the clamped integer for MariaDB/MySQL INTERVAL compatibility.
+    $sql='SELECT action,entity_type,entity_id,metadata,created_at FROM activity_log WHERE user_id=? AND created_at>=DATE_SUB(NOW(), INTERVAL '.$days.' DAY) ORDER BY created_at DESC LIMIT '.$limit;
+    $st=db()->prepare($sql);
+    $st->execute([$uid]);
     return $st->fetchAll();
 }
 
@@ -867,11 +869,42 @@ function gemini_text(string $prompt, array $u): string {
 
 function analytics_data(string $uid, int $days = 30): array {
     $pdo=db();
-    $st=$pdo->prepare('SELECT COUNT(*) c, SUM(status="done") done, SUM(status="open") open, SUM(CASE WHEN status="open" AND due_at < NOW() THEN 1 ELSE 0 END) overdue, SUM(CASE WHEN status="done" THEN COALESCE(estimated_minutes,0) ELSE 0 END) focus_minutes FROM tasks WHERE user_id=? AND created_at>=DATE_SUB(NOW(), INTERVAL ? DAY)');
-    $st->execute([$uid,$days]); $summary=$st->fetch() ?: [];
-    $daily=$pdo->prepare('SELECT DATE(completed_at) day, COUNT(*) completed, SUM(COALESCE(estimated_minutes,0)) minutes FROM tasks WHERE user_id=? AND status="done" AND completed_at>=DATE_SUB(CURDATE(), INTERVAL ? DAY) GROUP BY DATE(completed_at) ORDER BY day');
-    $daily->execute([$uid,$days]);
-    $byPriority=$pdo->prepare('SELECT priority, COUNT(*) total, SUM(status="done") done FROM tasks WHERE user_id=? GROUP BY priority ORDER BY FIELD(priority,"high","medium","low")');$byPriority->execute([$uid]);
-    $completion = ((int)($summary['c']??0))>0 ? round(((int)($summary['done']??0)/(int)$summary['c'])*100,1) : 0;
-    return ['days'=>$days,'summary'=>['total'=>(int)($summary['c']??0),'done'=>(int)($summary['done']??0),'open'=>(int)($summary['open']??0),'overdue'=>(int)($summary['overdue']??0),'focus_minutes'=>(int)($summary['focus_minutes']??0),'completion_rate'=>$completion],'daily'=>$daily->fetchAll(),'by_priority'=>$byPriority->fetchAll()];
+    $days=max(1,min(365,$days));
+
+    // Use literal, clamped integer intervals for broad MariaDB/MySQL compatibility.
+    $summarySql='SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status="done" THEN 1 ELSE 0 END) AS done,
+        SUM(CASE WHEN status="open" THEN 1 ELSE 0 END) AS open_count,
+        SUM(CASE WHEN status="open" AND due_at IS NOT NULL AND due_at < NOW() THEN 1 ELSE 0 END) AS overdue,
+        SUM(CASE WHEN status="done" THEN COALESCE(estimated_minutes,0) ELSE 0 END) AS focus_minutes
+      FROM tasks
+      WHERE user_id=? AND created_at>=DATE_SUB(NOW(), INTERVAL '.$days.' DAY)';
+    $st=$pdo->prepare($summarySql);$st->execute([$uid]);$summary=$st->fetch() ?: [];
+
+    $dailySql='SELECT DATE(completed_at) AS day, COUNT(*) AS completed, SUM(COALESCE(estimated_minutes,0)) AS minutes
+      FROM tasks
+      WHERE user_id=? AND status="done" AND completed_at IS NOT NULL
+        AND completed_at>=DATE_SUB(CURDATE(), INTERVAL '.$days.' DAY)
+      GROUP BY DATE(completed_at) ORDER BY day';
+    $daily=$pdo->prepare($dailySql);$daily->execute([$uid]);
+
+    $byPriority=$pdo->prepare('SELECT priority, COUNT(*) AS total, SUM(CASE WHEN status="done" THEN 1 ELSE 0 END) AS done FROM tasks WHERE user_id=? GROUP BY priority ORDER BY FIELD(priority,"high","medium","low")');
+    $byPriority->execute([$uid]);
+    $total=(int)($summary['total']??0);
+    $done=(int)($summary['done']??0);
+    $completion=$total>0?round(($done/$total)*100,1):0;
+    return [
+        'days'=>$days,
+        'summary'=>[
+            'total'=>$total,
+            'done'=>$done,
+            'open'=>(int)($summary['open_count']??0),
+            'overdue'=>(int)($summary['overdue']??0),
+            'focus_minutes'=>(int)($summary['focus_minutes']??0),
+            'completion_rate'=>$completion
+        ],
+        'daily'=>$daily->fetchAll(),
+        'by_priority'=>$byPriority->fetchAll()
+    ];
 }

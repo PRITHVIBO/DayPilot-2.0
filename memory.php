@@ -116,8 +116,10 @@ function project_exists_for_user(string $uid, ?string $projectId): bool {
 function fetch_work_logs(string $uid, int $days = 14, ?string $projectId = null, int $limit = 100): array {
     $days = max(1, min(365, $days));
     $limit = max(1, min(300, $limit));
-    $sql = 'SELECT w.id,w.project_id,w.title,w.content,w.kind,w.created_at,w.updated_at,p.name project_name FROM work_logs w LEFT JOIN projects p ON p.id=w.project_id WHERE w.user_id=? AND w.created_at>=DATE_SUB(NOW(), INTERVAL ? DAY)';
-    $args = [$uid, $days];
+    // MySQL/MariaDB do not consistently accept a bound parameter in INTERVAL syntax.
+    // The value is clamped to an integer above, so interpolation here is safe.
+    $sql = 'SELECT w.id,w.project_id,w.title,w.content,w.kind,w.created_at,w.updated_at,p.name project_name FROM work_logs w LEFT JOIN projects p ON p.id=w.project_id WHERE w.user_id=? AND w.created_at>=DATE_SUB(NOW(), INTERVAL ' . $days . ' DAY)';
+    $args = [$uid];
     if ($projectId) { $sql .= ' AND w.project_id=?'; $args[] = $projectId; }
     $sql .= ' ORDER BY w.created_at DESC LIMIT ' . $limit;
     $st = db()->prepare($sql); $st->execute($args);

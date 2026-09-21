@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1020">
 <meta name="description" content="DayPilot — your personal work memory, daily planner and AI assistant.">
-<link rel="manifest" href="manifest.webmanifest">
+<link rel="manifest" href="manifest.webmanifest?v=2.1.0">
 <link rel="icon" href="assets/icon.svg">
 <title>DayPilot — Work Memory & AI Assistant</title>
-<link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="assets/styles.css?v=2.1.0">
 </head>
 <body>
 <div id="app">
@@ -40,7 +40,7 @@
 
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
-      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span></div>
+      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.1</small></div>
       <div class="sidebar-profile">
         <div class="avatar" id="avatar">U</div>
         <div><strong id="userName">User</strong><span id="syncState">Online</span></div>
@@ -69,8 +69,8 @@
 
       <section id="toast" class="toast hidden"></section>
       <div id="viewToday" class="view">
-        <section class="welcome-card panel">
-          <div><div class="eyebrow">YOUR DAY IN ONE PLACE</div><h2 id="welcomeHeading">Let's make today's work visible.</h2><p class="muted">Your recent work, unfinished tasks and saved memory all meet here.</p></div>
+        <section class="welcome-card panel hero-v21">
+          <div><div class="eyebrow">DAYPILOT 2.1 · WORK INTELLIGENCE</div><h2 id="welcomeHeading">Your work, remembered.</h2><p class="muted">Your recent work, unfinished tasks and saved memory all meet here.</p></div>
           <div class="welcome-actions"><button id="planTodayBtn" class="primary">Plan my day</button><button id="reviewTodayBtn" class="secondary">Review today</button></div>
         </section>
 
@@ -141,6 +141,6 @@
     </section>
   </div>
 </div>
-<script src="assets/app.js" defer></script>
+<script src="assets/app.js?v=2.1.0" defer></script>
 </body>
 </html>
