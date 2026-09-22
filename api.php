@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
-header('X-DayPilot-Version: 2.3.1');
+header('X-DayPilot-Version: 2.3.0');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Vary: Cookie');
@@ -11,7 +11,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.3.1','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.3.0','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
         $u=user();
         if ($u) {
@@ -20,7 +20,7 @@ try {
         $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
-            'version'=>'2.3.1',
+            'version'=>'2.3.0',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -145,9 +145,7 @@ try {
     if ($action === 'daily_review' && $method === 'POST') {
         $in=input_json();$date=preg_match('/^\d{4}-\d{2}-\d{2}$/',(string)($in['date']??''))?(string)$in['date']:date('Y-m-d');$data=daily_data_snapshot($uid,$date);$prompt="Create a concise end-of-day review for {$date}. Use only the recorded workspace data provided. Return Markdown with exactly these headings: Daily summary, Accomplished, Carry forward, Blockers, Tomorrow's first move. Do not invent work. Here is the recorded data:\n".json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         $content=deterministic_daily_review($uid,$date);$generated='local';
-        // Keep the review responsive: the deterministic review is always available.
-        // Online AI is optional enhancement and runs only when explicitly requested later.
-
+        try { $result=ai_orchestrate_chat($prompt,$u); if(!empty($result['text']) && ($result['provider']??'local')!=='local'){ $content=trim($result['text']);$generated=($result['provider']??'ai').':'.($result['model']??''); } } catch(Throwable $e){ error_log('[DayPilot daily review] '.$e->getMessage()); }
         $reviewId=fetch_daily_review($uid,$date)['id']??uuid();$t=now();$st=$pdo->prepare('INSERT INTO daily_reviews(id,user_id,review_date,content,generated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE content=VALUES(content),generated_by=VALUES(generated_by),updated_at=VALUES(updated_at)');$st->execute([$reviewId,$uid,$date,$content,$generated,$t,$t]);log_activity('daily_review','review',$reviewId,['date'=>$date,'generated_by'=>$generated]);json_response(['ok'=>true,'review'=>fetch_daily_review($uid,$date),'provider'=>$generated]);
     }
 
