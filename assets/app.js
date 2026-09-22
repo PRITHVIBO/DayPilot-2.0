@@ -4,7 +4,31 @@ const state={
   online:navigator.onLine,month:new Date(new Date().getFullYear(),new Date().getMonth(),1),selectedNote:null,db:null,syncing:false
 };
 const $=id=>document.getElementById(id);
-const api=async(action,options={})=>{const method=options.method||'GET';const headers={'Accept':'application/json',...(options.headers||{})};if(method!=='GET'&&!headers['Content-Type'])headers['Content-Type']='application/json';if(method!=='GET'&&state.csrf)headers['X-CSRF-Token']=state.csrf;const raw=String(action);const match=raw.match(/^([^?&]+)(.*)$/);const base=match?match[1]:raw;const suffix=match?match[2]:'';const querySuffix=suffix?(suffix[0]==='?'?'&'+suffix.slice(1):suffix):'';const url=`api.php?action=${encodeURIComponent(base)}${querySuffix}`;const res=await fetch(url,{...options,headers});const text=await res.text();let data={};try{data=text?JSON.parse(text):{}}catch{throw new Error(`Server returned non-JSON response (${res.status}).`)}if(!res.ok){const detail=data.error||`Request failed (${res.status})`;throw new Error(detail)}return data};
+const api=async(action,options={},retrying=false)=>{
+  const method=options.method||'GET';
+  const headers={'Accept':'application/json',...(options.headers||{})};
+  if(method!=='GET'&&!headers['Content-Type']) headers['Content-Type']='application/json';
+  if(method!=='GET'&&state.csrf) headers['X-CSRF-Token']=state.csrf;
+  const raw=String(action);
+  const match=raw.match(/^([^?&]+)(.*)$/);
+  const base=match?match[1]:raw;
+  const suffix=match?match[2]:'';
+  const querySuffix=suffix?(suffix[0]==='?'?'&'+suffix.slice(1):suffix):'';
+  const cacheBust=method==='GET' ? `&__dp=${Date.now()}-${Math.random().toString(36).slice(2)}` : '';
+  const url=`api.php?action=${encodeURIComponent(base)}${querySuffix}${cacheBust}`;
+  const res=await fetch(url,{...options,headers,credentials:'same-origin',cache:'no-store'});
+  const text=await res.text();
+  let data={};
+  try{data=text?JSON.parse(text):{}}catch{throw new Error(`Server returned non-JSON response (${res.status}).`)}
+  if(!res.ok){
+    const detail=data.error||`Request failed (${res.status})`;
+    if(res.status===419&&!retrying&&method!=='GET'){
+      try{const fresh=await api('csrf',{method:'GET'},true);state.csrf=fresh.csrf||state.csrf;return api(action,options,true);}catch{}
+    }
+    throw new Error(detail);
+  }
+  return data;
+};
 function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 function md(s=''){let x=esc(s);x=x.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>');x=x.replace(/^(?:- )(.*)$/gm,'<li>$1</li>');x=x.replace(/(<li>.*<\/li>\n?)+/g,m=>`<ul>${m}</ul>`);x=x.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');return `<p>${x}</p>`}
 function toast(msg,kind='ok'){const el=$('toast');el.textContent=msg;el.className=`toast ${kind}`;clearTimeout(window.__toastTimer);window.__toastTimer=setTimeout(()=>el.className='toast hidden',3000)}
@@ -80,7 +104,19 @@ function startVoice(id){const SR=window.SpeechRecognition||window.webkitSpeechRe
 function base64ToBytes(b64){const pad='='.repeat((4-b64.length%4)%4);const raw=atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
 async function registerPush(){try{if(!('serviceWorker'in navigator)||!('PushManager'in window))throw new Error('Push notifications are not supported here.');if(!state.online)throw new Error('Reconnect first.');const k=await api('push_public');if(!k.public_key)throw new Error('Push is not configured on this server.');const perm=await Notification.requestPermission();if(perm!=='granted')throw new Error('Notification permission was not granted.');const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ToBytes(k.public_key)});await api('push_subscribe',{method:'POST',body:JSON.stringify({subscription:sub.toJSON()})});$('pushState').textContent='Enabled';toast('Notifications enabled on this device.')}catch(e){toast(e.message,'error')}}
 
-async function loadRemote(){if(!state.online||!state.user)return;try{const today=localDate();const [t,e,n,r,p,w,m,d]=await Promise.all([api('tasks&status=all&limit=300'),api('events&from='+encodeURIComponent(today+' 00:00:00')+'&to='+encodeURIComponent(today+' 23:59:59')),api('notes'),api('reminders'),api('projects'),api('work_logs&days=30'),api('memory_stats'),api('daily_snapshot&date='+today)]);state.tasks=t.tasks||[];state.events=e.events||[];state.notes=n.notes||[];state.reminders=r.reminders||[];state.projects=p.projects||[];state.logs=w.work_logs||[];state.memoryStats=m.stats||state.memoryStats;state.memorySemantic=!!m.semantic_queries;state.daily=d;state.review=d.review||null;await idbClear('tasks');await idbClear('events');await idbClear('notes');await idbClear('work_logs');await cacheState();renderAll();renderCalendar();updateSyncBadge()}catch(e){console.warn(e);toast('Could not refresh server data. Cached data remains available.','error')}}
+async function loadRemote(){if(!state.online||!state.user)return;const today=localDate();try{const results=await Promise.allSettled([api('tasks&status=all&limit=300'),api('events&from='+encodeURIComponent(today+' 00:00:00')+'&to='+encodeURIComponent(today+' 23:59:59')),api('notes'),api('reminders'),api('projects'),api('work_logs&days=30'),api('memory_stats'),api('daily_snapshot&date='+today)]);const [t,e,n,r,p,w,m,d]=results;
+  if(t.status==='fulfilled') state.tasks=t.value.tasks||[];
+  if(e.status==='fulfilled') state.events=e.value.events||[];
+  if(n.status==='fulfilled') state.notes=n.value.notes||[];
+  if(r.status==='fulfilled') state.reminders=r.value.reminders||[];
+  if(p.status==='fulfilled') state.projects=p.value.projects||[];
+  if(w.status==='fulfilled') state.logs=w.value.work_logs||[];
+  if(m.status==='fulfilled'){state.memoryStats=m.value.stats||state.memoryStats;state.memorySemantic=!!m.value.semantic_queries;}
+  if(d.status==='fulfilled'){state.daily=d.value;state.review=d.value.review||null;}
+  await idbClear('tasks');await idbClear('events');await idbClear('notes');await idbClear('work_logs');await cacheState();renderAll();renderCalendar();updateSyncBadge();
+  const failed=results.filter(x=>x.status==='rejected').length;
+  if(failed) console.warn('[DayPilot] Optional sync endpoints failed:',failed);
+}catch(e){console.warn(e);toast('Could not refresh server data. Cached data remains available.','error')}}
 
 $('loginForm').addEventListener('submit',async e=>{e.preventDefault();try{const d=await api('login',{method:'POST',body:JSON.stringify({email:$('loginEmail').value,password:$('loginPassword').value})});state.csrf=d.csrf;state.user=d.user;await initDB(state.user.id);showApp();await loadCached();await loadRemote();setView('today');toast('Welcome back.')}catch(err){$('authError').textContent=err.message;$('authError').classList.remove('hidden')}})
 $('registerForm').addEventListener('submit',async e=>{e.preventDefault();try{const d=await api('register',{method:'POST',body:JSON.stringify({name:$('regName').value,email:$('regEmail').value,password:$('regPassword').value})});state.csrf=d.csrf;state.user=d.user;await initDB(state.user.id);showApp();await loadCached();await loadRemote();setView('today');toast('Account created.')}catch(err){$('authError').textContent=err.message;$('authError').classList.remove('hidden')}})

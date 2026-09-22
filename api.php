@@ -10,12 +10,28 @@ try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
     if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.2.1','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
-        $u=user();
-        if ($u) ensure_v2_schema();
-        $providers = ai_provider_plan();
+        // Boot must stay lightweight: it is called before login and must not
+        // run RAG schema migrations or optional memory queries.
+        $u=null;
+        $bootWarnings=[];
+        try {
+            $u=user();
+        } catch (Throwable $e) {
+            error_log('[DayPilot boot user] '.$e->getMessage());
+            $bootWarnings[]='account lookup temporarily unavailable';
+        }
+
+        try {
+            $providers=ai_provider_plan();
+        } catch (Throwable $e) {
+            error_log('[DayPilot boot AI] '.$e->getMessage());
+            $providers=[];
+            $bootWarnings[]='AI provider configuration could not be loaded';
+        }
+
         json_response([
             'ok'=>true,
-            'version'=>'2.2.1',
+            'version'=>'2.2.2',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -25,12 +41,13 @@ try {
                 'google_calendar'=>(string)cfg('google.client_id')!==''
             ],
             'ai_orchestrator'=>[
-                'mode'=>(string)cfg('ai.provider','auto'),
+                'mode'=>(string)cfg('ai.provider','openrouter'),
                 'providers'=>array_map(static fn($p)=>$p['provider'].':'.$p['model'],$providers),
                 'local_fallback'=>true,
                 'rag_semantic'=>(bool)cfg('ai.rag.semantic_queries', false),
             ],
-            'memory'=> $u ? memory_stats($u['id']) : null
+            'memory'=>null,
+            'warnings'=>$bootWarnings
         ]);
     }
     require_csrf();
