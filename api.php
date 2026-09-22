@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
-header('X-DayPilot-Version: 2.3.1');
+header('X-DayPilot-Version: 2.3.3');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Vary: Cookie');
@@ -16,7 +16,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.3.1','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.3.3','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
         $u=user();
         if ($u) {
@@ -25,7 +25,7 @@ try {
         $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
-            'version'=>'2.3.1',
+            'version'=>'2.3.3',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),

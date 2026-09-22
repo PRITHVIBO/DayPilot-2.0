@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1020">
 <meta name="description" content="DayPilot — your personal work memory, daily planner and AI assistant.">
-<link rel="manifest" href="manifest.webmanifest?v=2.3.2">
+<link rel="manifest" href="manifest.webmanifest?v=2.3.3">
 <link rel="icon" href="assets/icon.svg">
 <title>DayPilot — Work Memory & AI Assistant</title>
-<link rel="stylesheet" href="assets/styles.css?v=2.3.2">
+<link rel="stylesheet" href="assets/styles.css?v=2.3.3">
 </head>
 <body>
 <div id="app">
@@ -40,7 +40,7 @@
 
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
-      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.3.2</small></div>
+      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.3.3</small></div>
       <div class="sidebar-profile">
         <div class="avatar" id="avatar">U</div>
         <div><strong id="userName">User</strong><span id="syncState">Online</span></div>
@@ -141,6 +141,6 @@
     </section>
   </div>
 </div>
-<script src="assets/app.js?v=2.3.2" defer></script>
+<script src="assets/app.js?v=2.3.3" defer></script>
 </body>
 </html>

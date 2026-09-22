@@ -1,4 +1,4 @@
-# DayPilot 2.3.1 stability fix
+# DayPilot 2.3.3 stability fix
 
 - Removed the provider-specific tool-calling dependency from the primary AI chat path.
 - Workspace actions (plan, reminders, task operations, revision/local review) can run through deterministic local handlers even when an online model fails.

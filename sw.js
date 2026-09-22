@@ -1,5 +1,5 @@
 const CACHE='daypilot-shell-v2-3-2';
-const CORE=['./','index.php','assets/app.js?v=2.3.2','assets/styles.css?v=2.3.2','manifest.webmanifest','assets/icon.svg','assets/icon-192.png','assets/icon-512.png'];
+const CORE=['./','index.php','assets/app.js?v=2.3.3','assets/styles.css?v=2.3.3','manifest.webmanifest','assets/icon.svg','assets/icon-192.png','assets/icon-512.png'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));

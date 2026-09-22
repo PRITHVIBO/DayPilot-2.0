@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
-header('X-DayPilot-Version: 2.3.2');
+header('X-DayPilot-Version: 2.3.3');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Vary: Cookie');
@@ -12,7 +12,7 @@ try {
     try { $providers = ai_provider_plan(); } catch (Throwable $e) { error_log('[DayPilot boot AI] '.$e->getMessage()); }
     json_response([
         'ok' => true,
-        'version' => '2.3.2',
+        'version' => '2.3.3',
         'user' => $u,
         'csrf' => csrf_token(),
         'vapid_public_key' => (string)cfg('push.public_key'),
