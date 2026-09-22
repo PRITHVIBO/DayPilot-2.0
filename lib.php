@@ -49,10 +49,6 @@ function now(): string { return date('Y-m-d H:i:s'); }
 function json_response(array $data, int $status = 200): never {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-    header('Pragma: no-cache');
-    header('Expires: 0');
-    header('Vary: Cookie');
     echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -231,17 +227,16 @@ function http_json(string $url, array $headers, array $body, int $timeout = 90):
 
 
 function ai_workspace_context(array $u, string $message = ''): array {
-    $tasks = fetch_tasks($u['id'], 'open', 50);
-    $events = fetch_events(
-        $u['id'],
-        date('Y-m-d 00:00:00'),
-        date('Y-m-d H:i:s', strtotime('+7 days'))
-    );
-    $notes = fetch_notes($u['id']);
-    $projects = fetch_projects($u['id']);
-    $logs = fetch_work_logs($u['id'], 14, null, 30);
-    $activity = fetch_recent_activity($u['id'], 7, 30);
-    $memory = $message !== '' ? memory_context($u['id'], $message, 6) : ['text'=>'','sources'=>[]];
+    $safe = static function(callable $fn, $fallback) {
+        try { return $fn(); } catch (Throwable $e) { error_log('[DayPilot context] '.$e->getMessage()); return $fallback; }
+    };
+    $tasks = $safe(fn()=>fetch_tasks($u['id'], 'open', 50), []);
+    $events = $safe(fn()=>fetch_events($u['id'], date('Y-m-d 00:00:00'), date('Y-m-d H:i:s', strtotime('+7 days'))), []);
+    $notes = $safe(fn()=>fetch_notes($u['id']), []);
+    $projects = $safe(fn()=>fetch_projects($u['id']), []);
+    $logs = $safe(fn()=>fetch_work_logs($u['id'], 14, null, 30), []);
+    $activity = $safe(fn()=>fetch_recent_activity($u['id'], 7, 30), []);
+    $memory = $message !== '' ? $safe(fn()=>memory_context($u['id'], $message, 6), ['text'=>'Memory retrieval is temporarily unavailable.','sources'=>[]]) : ['text'=>'','sources'=>[]];
 
     $context = [
         'user' => ['name'=>$u['name'], 'timezone'=>$u['timezone']],
@@ -541,30 +536,79 @@ function local_assistant_fallback(string $message, array $u): array {
 }
 
 function ai_orchestrate_chat(string $message, array $u): array {
+    // Handle deterministic workspace actions first. These do not depend on an AI
+    // provider and therefore keep DayPilot useful when providers rate-limit,
+    // reject tool calls, or are temporarily unavailable.
+    $local = local_assistant_fallback($message, $u);
+    if (($local['provider'] ?? '') === 'local' && !empty($local['tool_actions'])) {
+        return $local;
+    }
+
+    // For conversational work, ask the provider for plain text only. Tool
+    // calling is intentionally avoided in the primary path because free-model
+    // compatibility varies between providers. Workspace mutations use the
+    // deterministic router above.
     $plan = ai_provider_plan();
     $errors = [];
-
     foreach ($plan as $item) {
         try {
-            $result = ai_call_openrouter($message, $u, $item['model']);
-
-            if (!empty($result['provider'])) {
-                log_activity('ai_provider_used', 'ai', null, [
-                    'provider' => $result['provider'],
-                    'model' => $result['model'] ?? null,
-                    'partial' => (bool)($result['partial'] ?? false),
-                ]);
+            $result = ai_call_openrouter_text($message, $u, $item['model']);
+            if ($result !== '') {
+                return [
+                    'text' => $result,
+                    'tool_actions' => [],
+                    'provider' => 'openrouter',
+                    'model' => $item['model'],
+                    'rag_sources' => memory_context($u['id'], $message, 6)['sources'] ?? [],
+                    'partial' => false,
+                ];
             }
-            return $result;
         } catch (Throwable $e) {
-            $errors[] = $item['provider'] . ':' . $item['model'] . ' -> ' . $e->getMessage();
-            error_log('[DayPilot AI fallback] ' . end($errors));
+            $errors[] = $item['provider'].':'.$item['model'].' -> '.$e->getMessage();
+            error_log('[DayPilot AI provider] '.end($errors));
         }
     }
 
     $fallback = local_assistant_fallback($message, $u);
-    log_activity('ai_local_fallback', 'ai', null, ['reason_count' => count($errors)]);
+    $fallback['provider_error_count'] = count($errors);
+    $fallback['online_error'] = (bool)$errors;
     return $fallback;
+}
+
+function ai_call_openrouter_text(string $message, array $u, string $model): string {
+    $key = trim((string)cfg('ai.openrouter.api_key'));
+    if ($key === '') throw new RuntimeException('OpenRouter API key is not configured.');
+
+    [$system] = ai_workspace_context($u, $message);
+    // Plain-text request: no tools, so free models with uneven tool support do
+    // not cause avoidable 400/422 responses.
+    $body = [
+        'model' => $model,
+        'messages' => [
+            ['role' => 'system', 'content' => $system],
+            ['role' => 'user', 'content' => $message],
+        ],
+        'temperature' => 0.2,
+        'max_tokens' => 1400,
+    ];
+    $headers = [
+        'Content-Type: application/json',
+        'Accept: application/json',
+        'Authorization: Bearer '.$key,
+    ];
+    $referer = trim((string)cfg('ai.openrouter.site_url', 'https://projects.bhavyagupta.space'));
+    $appName = trim((string)cfg('ai.openrouter.app_name', 'DayPilot'));
+    if ($referer !== '') $headers[] = 'HTTP-Referer: '.$referer;
+    if ($appName !== '') $headers[] = 'X-Title: '.$appName;
+
+    $resp = http_json('https://openrouter.ai/api/v1/chat/completions', $headers, $body, 60);
+    $content = $resp['choices'][0]['message']['content'] ?? '';
+    if (is_array($content)) {
+        $parts=[];
+        foreach($content as $part) if(is_array($part) && isset($part['text'])) $parts[]=(string)$part['text'];
+        $content=implode('', $parts);
+    }
+    return trim((string)$content);
 }
 
 function local_text_fallback(string $prompt, array $u): string {
@@ -597,8 +641,7 @@ function local_text_fallback(string $prompt, array $u): string {
 function ai_orchestrate_text(string $prompt, array $u): string {
     foreach (ai_provider_plan() as $item) {
         try {
-            $result = ai_call_openrouter($prompt, $u, $item['model']);
-            $text = trim((string)($result['text'] ?? ''));
+            $text = ai_call_openrouter_text($prompt, $u, $item['model']);
             if ($text !== '') return $text;
         } catch (Throwable $e) {
             error_log('[DayPilot AI text fallback] '.$item['provider'].':'.$item['model'].' -> '.$e->getMessage());

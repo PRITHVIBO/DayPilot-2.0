@@ -8,9 +8,14 @@ function ensure_v2_schema(): void {
     $pdo = db();
     $tables = ['projects','work_logs','daily_reviews','memory_chunks'];
     foreach ($tables as $table) {
-        $st = $pdo->prepare('SHOW TABLES LIKE ?');
+        $st = $pdo->prepare(
+            "SELECT 1 FROM information_schema.tables
+             WHERE table_schema = DATABASE() AND table_name = ?
+             LIMIT 1"
+        );
         $st->execute([$table]);
-        if (!$st->fetchColumn()) {
+        $tableExists = $st->fetchColumn() !== false;
+        if (!$tableExists) {
             $definitions = [
                 'projects' => "CREATE TABLE IF NOT EXISTS projects (
                     id CHAR(36) PRIMARY KEY,
@@ -221,8 +226,8 @@ function memory_index(string $uid, int $maxSources = 12, bool $semantic = true):
             $embeddingModel = $embeddingJson ? (string)cfg('ai.openrouter.embedding_model','liquid/lfm-2.5-embedding-350m:free') : null;
 
             if (!$existing || (string)$existing['embedding_hash'] !== $hash || $existing['embedding_json'] === null) {
-                if ($semantic && !$embeddingJson && trim((string)cfg('ai.api_key')) !== '') {
-                    try { $embeddingJson = json_encode(openrouter_embedding($chunkText,'RETRIEVAL_DOCUMENT'), JSON_THROW_ON_ERROR); $embeddingModel=(string)cfg('ai.openrouter.embedding_model','liquid/lfm-2.5-embedding-350m:free'); $embedded++; }
+                if ($semantic && !$embeddingJson && trim((string)cfg('ai.openrouter.api_key')) !== '') {
+                    try { $embeddingJson = json_encode(openrouter_embedding($chunkText), JSON_THROW_ON_ERROR); $embeddingModel=(string)cfg('ai.openrouter.embedding_model','liquid/lfm-2.5-embedding-350m:free'); $embedded++; }
                     catch (Throwable $e) { $failed++; error_log('[DayPilot memory embedding] '.$e->getMessage()); }
                 }
                 $now = now();
@@ -270,8 +275,8 @@ function search_memory(string $uid, string $query, int $limit = 8, bool $semanti
     $st = $pdo->prepare('SELECT m.id,m.source_type,m.source_id,m.project_id,m.content,m.embedding_json,m.updated_at, COALESCE(n.title,w.title,r.review_date,p.name, m.source_type) AS title FROM memory_chunks m LEFT JOIN notes n ON n.id=m.source_id AND m.source_type="note" LEFT JOIN work_logs w ON w.id=m.source_id AND m.source_type="work_log" LEFT JOIN daily_reviews r ON r.id=m.source_id AND m.source_type="daily_review" LEFT JOIN projects p ON p.id=m.source_id AND m.source_type="project" WHERE m.user_id=? ORDER BY m.updated_at DESC LIMIT 1800');
     $st->execute([$uid]); $rows=$st->fetchAll();
     $queryEmbedding = null;
-    if ($semantic && trim((string)cfg('ai.api_key')) !== '') {
-        try { $queryEmbedding = openrouter_embedding($query,'RETRIEVAL_QUERY'); } catch (Throwable $e) { error_log('[DayPilot memory query embedding] '.$e->getMessage()); }
+    if ($semantic && trim((string)cfg('ai.openrouter.api_key')) !== '') {
+        try { $queryEmbedding = openrouter_embedding($query); } catch (Throwable $e) { error_log('[DayPilot memory query embedding] '.$e->getMessage()); }
     }
     $scored=[];
     foreach($rows as $row){

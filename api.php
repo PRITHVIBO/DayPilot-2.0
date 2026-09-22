@@ -1,37 +1,26 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
-header('X-DayPilot-Version: 2.2.0');
+header('X-DayPilot-Version: 2.3.0');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Vary: Cookie');
 
 $action = $_GET['action'] ?? 'boot';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.2.1','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.3.0','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
-        // Boot must stay lightweight: it is called before login and must not
-        // run RAG schema migrations or optional memory queries.
-        $u=null;
-        $bootWarnings=[];
-        try {
-            $u=user();
-        } catch (Throwable $e) {
-            error_log('[DayPilot boot user] '.$e->getMessage());
-            $bootWarnings[]='account lookup temporarily unavailable';
+        $u=user();
+        if ($u) {
+            try { ensure_v2_schema(); } catch (Throwable $e) { error_log('[DayPilot boot schema] '.$e->getMessage()); }
         }
-
-        try {
-            $providers=ai_provider_plan();
-        } catch (Throwable $e) {
-            error_log('[DayPilot boot AI] '.$e->getMessage());
-            $providers=[];
-            $bootWarnings[]='AI provider configuration could not be loaded';
-        }
-
+        $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
-            'version'=>'2.2.2',
+            'version'=>'2.3.0',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -41,13 +30,12 @@ try {
                 'google_calendar'=>(string)cfg('google.client_id')!==''
             ],
             'ai_orchestrator'=>[
-                'mode'=>(string)cfg('ai.provider','openrouter'),
+                'mode'=>(string)cfg('ai.provider','auto'),
                 'providers'=>array_map(static fn($p)=>$p['provider'].':'.$p['model'],$providers),
                 'local_fallback'=>true,
                 'rag_semantic'=>(bool)cfg('ai.rag.semantic_queries', false),
             ],
-            'memory'=>null,
-            'warnings'=>$bootWarnings
+            'memory'=> $u ? memory_stats($u['id']) : null
         ]);
     }
     require_csrf();
@@ -66,7 +54,9 @@ try {
     }
     if ($action === 'logout' && $method === 'POST') { $_SESSION=[]; if(ini_get('session.use_cookies')){ $p=session_get_cookie_params(); setcookie(session_name(),'',['expires'=>time()-42000,'path'=>$p['path'],'secure'=>$p['secure'],'httponly'=>$p['httponly'],'samesite'=>$p['samesite']??'Lax']); } session_destroy();json_response(['ok'=>true]); }
 
-    $u=require_user(); $uid=$u['id']; $pdo=db(); ensure_v2_schema();
+    $u=require_user(); $uid=$u['id']; $pdo=db();
+    try { ensure_v2_schema(); } catch (Throwable $e) { error_log('[DayPilot schema] '.$e->getMessage()); }
+
 
     if ($action === 'tasks' && $method === 'GET') json_response(['tasks'=>fetch_tasks($uid, isset($_GET['status'])?(string)$_GET['status']:null, (int)($_GET['limit']??200))]);
     if ($action === 'task_create' && $method === 'POST') {
@@ -160,7 +150,10 @@ try {
     }
 
     if ($action === 'plan_today' && $method === 'POST') { $in=input_json();$date=preg_replace('/[^0-9-]/','',(string)($in['date']??date('Y-m-d')));$blocks=plan_day($uid,$date);log_activity('plan_today');json_response(['date'=>$date,'blocks'=>$blocks]); }
-    if ($action === 'analytics' && $method === 'GET') json_response(analytics_data($uid,(int)($_GET['days']??30)));
+    if ($action === 'analytics' && $method === 'GET') {
+        try { json_response(analytics_data($uid,(int)($_GET['days']??30))); }
+        catch (Throwable $e) { error_log('[DayPilot analytics] '.$e->getMessage()); json_response(['days'=>30,'summary'=>['total'=>0,'done'=>0,'open'=>count(fetch_tasks($uid,'open',200)),'overdue'=>0,'focus_minutes'=>0,'completion_rate'=>0],'daily'=>[],'by_priority'=>[],'warning'=>'Analytics temporarily unavailable; task data is still available.']); }
+    }
 
     if ($action === 'reminders' && $method === 'GET') { $st=$pdo->prepare('SELECT id,title,remind_at,status,task_id,event_id FROM reminders WHERE user_id=? ORDER BY remind_at LIMIT 100');$st->execute([$uid]);json_response(['reminders'=>$st->fetchAll()]); }
     if ($action === 'reminder_create' && $method === 'POST') {

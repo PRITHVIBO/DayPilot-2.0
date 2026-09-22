@@ -4,29 +4,22 @@ const state={
   online:navigator.onLine,month:new Date(new Date().getFullYear(),new Date().getMonth(),1),selectedNote:null,db:null,syncing:false
 };
 const $=id=>document.getElementById(id);
-const api=async(action,options={},retrying=false)=>{
+const api=async(action,options={})=>{
   const method=options.method||'GET';
   const headers={'Accept':'application/json',...(options.headers||{})};
-  if(method!=='GET'&&!headers['Content-Type']) headers['Content-Type']='application/json';
-  if(method!=='GET'&&state.csrf) headers['X-CSRF-Token']=state.csrf;
-  const raw=String(action);
-  const match=raw.match(/^([^?&]+)(.*)$/);
-  const base=match?match[1]:raw;
-  const suffix=match?match[2]:'';
-  const querySuffix=suffix?(suffix[0]==='?'?'&'+suffix.slice(1):suffix):'';
-  const cacheBust=method==='GET' ? `&__dp=${Date.now()}-${Math.random().toString(36).slice(2)}` : '';
-  const url=`api.php?action=${encodeURIComponent(base)}${querySuffix}${cacheBust}`;
-  const res=await fetch(url,{...options,headers,credentials:'same-origin',cache:'no-store'});
-  const text=await res.text();
-  let data={};
+  if(method!=='GET'&&!headers['Content-Type'])headers['Content-Type']='application/json';
+  if(method!=='GET'&&state.csrf)headers['X-CSRF-Token']=state.csrf;
+  const raw=String(action);const match=raw.match(/^([^?&]+)(.*)$/);const base=match?match[1]:raw;const suffix=match?match[2]:'';const querySuffix=suffix?(suffix[0]==='?'?'&'+suffix.slice(1):suffix):'';
+  const qs=(method==='GET'?(querySuffix?'&':'?'):'')+'_dp='+Date.now();
+  const url=`api.php?action=${encodeURIComponent(base)}${querySuffix}${qs}`;
+  const request={...options,headers,credentials:'same-origin',cache:'no-store'};
+  let res=await fetch(url,request);
+  let text=await res.text();let data={};
   try{data=text?JSON.parse(text):{}}catch{throw new Error(`Server returned non-JSON response (${res.status}).`)}
-  if(!res.ok){
-    const detail=data.error||`Request failed (${res.status})`;
-    if(res.status===419&&!retrying&&method!=='GET'){
-      try{const fresh=await api('csrf',{method:'GET'},true);state.csrf=fresh.csrf||state.csrf;return api(action,options,true);}catch{}
-    }
-    throw new Error(detail);
+  if(!res.ok&&res.status===419&&method!=='GET'){
+    try{const fresh=await fetch(`api.php?action=csrf&_dp=${Date.now()}`,{credentials:'same-origin',cache:'no-store'});const tok=await fresh.json();if(tok.csrf){state.csrf=tok.csrf;headers['X-CSRF-Token']=tok.csrf;res=await fetch(`api.php?action=${encodeURIComponent(base)}${querySuffix}`,request);text=await res.text();data=text?JSON.parse(text):{};}}catch{}
   }
+  if(!res.ok){const detail=data.error||`Request failed (${res.status})`;throw new Error(detail)}
   return data;
 };
 function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
@@ -50,7 +43,8 @@ async function loadCached(){state.tasks=await idbAll('tasks');state.events=await
 
 function updateNetwork(){state.online=navigator.onLine;$('networkBadge').textContent=state.online?'Online':'Offline';$('networkBadge').className=`status-pill ${state.online?'':'offline'}`;$('syncState').textContent=state.online?(state.syncing?'Syncing…':'Online'):'Offline';if(state.online)syncNow()}
 async function updateSyncBadge(){if(!state.db)return;const pending=(await idbAll('outbox')).length;$('syncState').textContent=state.online?(state.syncing?'Syncing…':pending?`${pending} pending`:'Online'):'Offline'}
-async function syncNow(){if(!state.online||state.syncing||!state.user||!state.db)return;const ops=await idbAll('outbox');if(!ops.length){updateSyncBadge();return}state.syncing=true;updateSyncBadge();try{const d=await api('sync',{method:'POST',body:JSON.stringify({operations:ops.map(o=>({type:o.type,entity:o.entity,data:o.data}))})});for(const o of ops)await idbDelete('outbox',o.op_id);if(Array.isArray(d.server_tasks)){state.tasks=d.server_tasks;await idbClear('tasks');for(const t of state.tasks)await idbPut('tasks',t)}if(Array.isArray(d.server_work_logs)){state.logs=d.server_work_logs;await idbClear('work_logs');for(const w of state.logs)await idbPut('work_logs',w)}if((d.conflicts||[]).length)toast(`${d.conflicts.length} offline change(s) conflicted; server copy kept.`,'error');else if((d.applied||[]).length)toast(`Synced ${d.applied.length} change(s).`);renderAll()}catch(e){console.warn(e)}finally{state.syncing=false;updateSyncBadge()}}
+let syncRetryTimer=null;
+async function syncNow(){if(!state.online||state.syncing||!state.user||!state.db)return;const ops=await idbAll('outbox');if(!ops.length){updateSyncBadge();return}state.syncing=true;updateSyncBadge();try{const d=await api('sync',{method:'POST',body:JSON.stringify({operations:ops.map(o=>({type:o.type,entity:o.entity,data:o.data}))})});for(const o of ops)await idbDelete('outbox',o.op_id);if(Array.isArray(d.server_tasks)){state.tasks=d.server_tasks;await idbClear('tasks');for(const t of state.tasks)await idbPut('tasks',t)}if(Array.isArray(d.server_work_logs)){state.logs=d.server_work_logs;await idbClear('work_logs');for(const w of state.logs)await idbPut('work_logs',w)}if((d.conflicts||[]).length)toast(`${d.conflicts.length} offline change(s) conflicted; server copy kept.`,'error');else if((d.applied||[]).length)toast(`Synced ${d.applied.length} change(s).`);renderAll();if(syncRetryTimer){clearTimeout(syncRetryTimer);syncRetryTimer=null}}catch(e){console.warn('[DayPilot sync]',e);await updateSyncBadge();if(!syncRetryTimer){syncRetryTimer=setTimeout(()=>{syncRetryTimer=null;syncNow()},30000)}}finally{state.syncing=false;updateSyncBadge()}}
 
 const titles={today:['TODAY','Good morning.','Capture, focus, finish, remember.'],tasks:['TASKS','Keep the queue clear.','Prioritize the next useful action.'],calendar:['CALENDAR','See work in time.','Tasks and events in one schedule.'],memory:['MEMORY','Build your work memory.','Search the context you actually created.'],notes:['NOTES','Keep knowledge usable.','Write once, retrieve it later.'],insights:['INSIGHTS','Understand your work patterns.','Use recorded activity to guide the next day.'],assistant:['AI ASSISTANT','Ask DayPilot.','Your current workspace and relevant memory are added automatically.'],settings:['SETTINGS','Tune your workspace.','Devices, reminders, AI and offline behavior.']};
 function setView(view){state.view=view;document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));const el=$('view'+view[0].toUpperCase()+view.slice(1));if(el)el.classList.remove('hidden');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const t=titles[view]||titles.today;$('viewEyebrow').textContent=t[0];$('viewTitle').textContent=t[1];$('viewSubtitle').textContent=t[2];if(view==='calendar'){renderCalendar();if(state.online)loadMonth()}if(view==='notes')renderNotes();if(view==='memory'){renderMemory();loadMemoryStats()}if(view==='insights')loadInsights()}
@@ -104,19 +98,9 @@ function startVoice(id){const SR=window.SpeechRecognition||window.webkitSpeechRe
 function base64ToBytes(b64){const pad='='.repeat((4-b64.length%4)%4);const raw=atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
 async function registerPush(){try{if(!('serviceWorker'in navigator)||!('PushManager'in window))throw new Error('Push notifications are not supported here.');if(!state.online)throw new Error('Reconnect first.');const k=await api('push_public');if(!k.public_key)throw new Error('Push is not configured on this server.');const perm=await Notification.requestPermission();if(perm!=='granted')throw new Error('Notification permission was not granted.');const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ToBytes(k.public_key)});await api('push_subscribe',{method:'POST',body:JSON.stringify({subscription:sub.toJSON()})});$('pushState').textContent='Enabled';toast('Notifications enabled on this device.')}catch(e){toast(e.message,'error')}}
 
-async function loadRemote(){if(!state.online||!state.user)return;const today=localDate();try{const results=await Promise.allSettled([api('tasks&status=all&limit=300'),api('events&from='+encodeURIComponent(today+' 00:00:00')+'&to='+encodeURIComponent(today+' 23:59:59')),api('notes'),api('reminders'),api('projects'),api('work_logs&days=30'),api('memory_stats'),api('daily_snapshot&date='+today)]);const [t,e,n,r,p,w,m,d]=results;
-  if(t.status==='fulfilled') state.tasks=t.value.tasks||[];
-  if(e.status==='fulfilled') state.events=e.value.events||[];
-  if(n.status==='fulfilled') state.notes=n.value.notes||[];
-  if(r.status==='fulfilled') state.reminders=r.value.reminders||[];
-  if(p.status==='fulfilled') state.projects=p.value.projects||[];
-  if(w.status==='fulfilled') state.logs=w.value.work_logs||[];
-  if(m.status==='fulfilled'){state.memoryStats=m.value.stats||state.memoryStats;state.memorySemantic=!!m.value.semantic_queries;}
-  if(d.status==='fulfilled'){state.daily=d.value;state.review=d.value.review||null;}
-  await idbClear('tasks');await idbClear('events');await idbClear('notes');await idbClear('work_logs');await cacheState();renderAll();renderCalendar();updateSyncBadge();
-  const failed=results.filter(x=>x.status==='rejected').length;
-  if(failed) console.warn('[DayPilot] Optional sync endpoints failed:',failed);
-}catch(e){console.warn(e);toast('Could not refresh server data. Cached data remains available.','error')}}
+async function loadRemote(){if(!state.online||!state.user)return;try{const today=localDate();const requests=[
+  ['tasks',api('tasks&status=all&limit=300')],['events',api('events&from='+encodeURIComponent(today+' 00:00:00')+'&to='+encodeURIComponent(today+' 23:59:59'))],['notes',api('notes')],['reminders',api('reminders')],['projects',api('projects')],['work_logs',api('work_logs&days=30')],['memory',api('memory_stats')],['daily',api('daily_snapshot&date='+today)]
+];const results=await Promise.allSettled(requests.map(x=>x[1]));const failed=[];for(let i=0;i<results.length;i++){const [name]=requests[i];const r=results[i];if(r.status==='rejected'){failed.push(name);continue}const d=r.value;if(name==='tasks')state.tasks=d.tasks||[];if(name==='events')state.events=d.events||[];if(name==='notes')state.notes=d.notes||[];if(name==='reminders')state.reminders=d.reminders||[];if(name==='projects')state.projects=d.projects||[];if(name==='work_logs')state.logs=d.work_logs||[];if(name==='memory'){state.memoryStats=d.stats||state.memoryStats;state.memorySemantic=!!d.semantic_queries}if(name==='daily'){state.daily=d;state.review=d.review||null}}await idbClear('tasks');await idbClear('events');await idbClear('notes');await idbClear('work_logs');await cacheState();renderAll();renderCalendar();if(failed.length)console.warn('[DayPilot refresh] failed:',failed);updateSyncBadge()}catch(e){console.warn('[DayPilot refresh]',e)}}
 
 $('loginForm').addEventListener('submit',async e=>{e.preventDefault();try{const d=await api('login',{method:'POST',body:JSON.stringify({email:$('loginEmail').value,password:$('loginPassword').value})});state.csrf=d.csrf;state.user=d.user;await initDB(state.user.id);showApp();await loadCached();await loadRemote();setView('today');toast('Welcome back.')}catch(err){$('authError').textContent=err.message;$('authError').classList.remove('hidden')}})
 $('registerForm').addEventListener('submit',async e=>{e.preventDefault();try{const d=await api('register',{method:'POST',body:JSON.stringify({name:$('regName').value,email:$('regEmail').value,password:$('regPassword').value})});state.csrf=d.csrf;state.user=d.user;await initDB(state.user.id);showApp();await loadCached();await loadRemote();setView('today');toast('Account created.')}catch(err){$('authError').textContent=err.message;$('authError').classList.remove('hidden')}})
@@ -144,4 +128,4 @@ $('icsExport').onclick=e=>{e.preventDefault();window.location=`api.php?action=ex
 document.querySelectorAll('[data-close-modal]').forEach(b=>b.addEventListener('click',closeCapture));function openCapture(){$('captureModal').classList.remove('hidden');$('captureModal').setAttribute('aria-hidden','false');setTimeout(()=>$('captureContent').focus(),30)}function closeCapture(){$('captureModal').classList.add('hidden');$('captureModal').setAttribute('aria-hidden','true')}
 window.addEventListener('online',updateNetwork);window.addEventListener('offline',updateNetwork);window.addEventListener('online',()=>syncNow());window.addEventListener('resize',()=>{if(state.view==='insights')loadInsights()})
 function showAuth(){$('authView').classList.remove('hidden');$('appView').classList.add('hidden')}function showApp(){$('authView').classList.add('hidden');$('appView').classList.remove('hidden')}
-(async()=>{try{if('serviceWorker'in navigator)await navigator.serviceWorker.register('sw.js');const boot=await api('boot');document.documentElement.dataset.daypilotVersion=boot.version||'2.2.1';state.csrf=boot.csrf;if(boot.user){state.user=boot.user;await initDB(state.user.id);showApp();await loadCached();await loadRemote();setView('today')}else showAuth();const providers=boot.ai_orchestrator?.providers||[];$('aiStatus').textContent=providers.length?`AI: ${providers.join(' → ')}`:'Local fallback';$('sidebarAiStatus').textContent=providers.length?providers.join(' → '):'Local fallback ready';$('settingsAi').textContent=providers.length?`${providers.length} provider path(s)`:'Local fallback';state.memorySemantic=!!boot.ai_orchestrator?.rag_semantic;state.memoryStats=boot.memory||state.memoryStats;updateNetwork()}catch(e){$('authError').textContent=e.message;$('authError').classList.remove('hidden')}})();
+(async()=>{try{if('serviceWorker'in navigator)await navigator.serviceWorker.register('sw.js');const boot=await api('boot');document.documentElement.dataset.daypilotVersion=boot.version||'2.3.0';state.csrf=boot.csrf;if(boot.user){state.user=boot.user;await initDB(state.user.id);showApp();await loadCached();await loadRemote();setView('today')}else showAuth();const providers=boot.ai_orchestrator?.providers||[];$('aiStatus').textContent=providers.length?`AI: ${providers.join(' → ')}`:'Local fallback';$('sidebarAiStatus').textContent=providers.length?providers.join(' → '):'Local fallback ready';$('settingsAi').textContent=providers.length?`${providers.length} provider path(s)`:'Local fallback';state.memorySemantic=!!boot.ai_orchestrator?.rag_semantic;state.memoryStats=boot.memory||state.memoryStats;updateNetwork()}catch(e){$('authError').textContent=e.message;$('authError').classList.remove('hidden')}})();
