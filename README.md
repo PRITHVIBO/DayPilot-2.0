@@ -10,13 +10,13 @@ DayPilot is an offline-first PWA for daily work capture, tasks, planning, calend
 - Project-aware memory and project workspace.
 - Daily review with local deterministic fallback plus AI generation when an online provider is available.
 - RAG memory index using chunked personal records.
-- Keyword + recency retrieval by default, with optional Gemini embeddings for semantic retrieval.
+- Keyword + recency retrieval by default, with optional OpenRouter free embeddings for semantic retrieval.
 - Resume context: recent work is surfaced as the "where I stopped" starting point.
 - AI assistant receives current tasks/events/notes plus relevant memory context.
 - AI tools for creating work logs and searching memory in addition to task/calendar actions.
 - Offline IndexedDB caching and sync for tasks and work logs.
 - Cross-device server storage through PHP + MySQL.
-- Gemini → OpenRouter → local deterministic fallback orchestration.
+- OpenRouter multi-model routing → local deterministic fallback orchestration.
 - PWA installability, ICS calendar export and optional Web Push reminders.
 
 ## Architecture
@@ -31,7 +31,7 @@ Browser / PWA
           ├── PHP session/auth + CSRF
           ├── MySQL (tasks, events, notes, projects, work_logs, reviews, memory)
           └── AI orchestrator
-                ├── Gemini
+                ├── OpenRouter
                 ├── OpenRouter free path
                 └── local deterministic fallback
 
@@ -107,7 +107,7 @@ The assistant gets:
 
 Semantic retrieval is opt-in because embedding requests consume provider quota. The Memory screen has **Build semantic memory** to explicitly create embeddings. Keyword + recency retrieval works without an embedding call.
 
-The default embedding model is `gemini-embedding-001` at 768 dimensions. The text generation model defaults to `gemini-3.8-flash`.
+The default embedding model is `liquid/lfm-2.5-embedding-350m:free` at 768 dimensions. The text generation model defaults to `OpenRouter free models`.
 
 ## Munder Difflin development workflow
 
@@ -134,6 +134,6 @@ Never commit:
 - `config.local.php`
 - `.env`
 - database passwords
-- Gemini/OpenRouter API keys
+- OpenRouter API key (optional; local fallback still works)
 - VAPID private keys
 - other provider secrets

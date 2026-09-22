@@ -22,9 +22,12 @@ services:
       DB_NAME: daypilot
       DB_USER: daypilot
       DB_PASS: daypilot-dev-password
-      AI_PROVIDER: gemini
-      GEMINI_MODEL: gemini-3.8-flash
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-openrouter}
+      AI_FALLBACK: ${AI_FALLBACK:-local}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_SITE_URL: ${OPENROUTER_SITE_URL:-http://localhost:8081}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-DayPilot}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL:-liquid/lfm-2.5-embedding-350m:free}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

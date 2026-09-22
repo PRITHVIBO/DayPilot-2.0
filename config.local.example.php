@@ -12,10 +12,8 @@ return [
     'pass' => 'CHANGE_ME',
   ],
   'ai' => [
-    'provider' => 'auto',
-    'api_key' => 'GEMINI_API_KEY',
-    'model' => 'gemini-3.8-flash',
-    'embedding_model' => 'gemini-embedding-001',
+    'provider' => 'openrouter',
+    'fallback' => 'local',
     'rag' => [
       'semantic_queries' => false,
       'max_chunks' => 8,
@@ -26,10 +24,11 @@ return [
       'app_name' => 'DayPilot',
       'models' => [
         'openrouter/free',
-        'cohere/north-mini-code:free',
-        'google/gemma-4-26b-a4b:free',
-        'google/gemma-4-31b:free',
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'nvidia/nemotron-3.5-lightning:free',
+        'inclusionai/ling-3.0-flash-fin:free',
       ],
+      'embedding_model' => 'liquid/lfm-2.5-embedding-350m:free',
     ],
   ],
   'push' => [

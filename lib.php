@@ -264,7 +264,7 @@ function fetch_recent_activity(string $uid, int $days = 7, int $limit = 30): arr
 
 function openrouter_tools(): array {
     $tools = [];
-    foreach (gemini_tools() as $tool) {
+    foreach (ai_tools() as $tool) {
         $tools[] = [
             'type' => 'function',
             'function' => [
@@ -278,150 +278,20 @@ function openrouter_tools(): array {
 }
 
 function ai_provider_plan(): array {
+    $mode = strtolower(trim((string)cfg('ai.provider', 'openrouter')));
+    if ($mode === 'local') return [];
+
+    $key = trim((string)cfg('ai.openrouter.api_key'));
+    if ($key === '') return [];
+
+    $models = cfg('ai.openrouter.models', ['openrouter/free']);
+    if (!is_array($models) || !$models) $models = ['openrouter/free'];
     $configured = [];
-    if (trim((string)cfg('ai.api_key')) !== '') {
-        $configured[] = ['provider' => 'gemini', 'model' => (string)cfg('ai.model', 'gemini-3.8-flash')];
+    foreach ($models as $model) {
+        $model = trim((string)$model);
+        if ($model !== '') $configured[] = ['provider' => 'openrouter', 'model' => $model];
     }
-
-    $orKey = trim((string)cfg('ai.openrouter.api_key'));
-    if ($orKey !== '') {
-        $models = cfg('ai.openrouter.models', [
-            'openrouter/free',
-            'cohere/north-mini-code:free',
-            'google/gemma-4-26b-a4b:free',
-            'google/gemma-4-31b:free',
-        ]);
-        if (!is_array($models) || !$models) $models = ['openrouter/free'];
-        foreach ($models as $model) {
-            $model = trim((string)$model);
-            if ($model !== '') $configured[] = ['provider' => 'openrouter', 'model' => $model];
-        }
-    }
-
     return $configured;
-}
-
-function ai_call_gemini(string $message, array $u): array {
-    $key = trim((string)cfg('ai.api_key'));
-    if ($key === '') throw new RuntimeException('Gemini API key is not configured.');
-
-    $model = trim((string)cfg('ai.model', 'gemini-3.8-flash')) ?: 'gemini-3.8-flash';
-    [$system] = ai_workspace_context($u, $message);
-    $pdo = db();
-    $st = $pdo->prepare('SELECT id,gemini_interaction_id FROM ai_threads WHERE user_id=?');
-    $st->execute([$u['id']]);
-    $thread = $st->fetch() ?: null;
-    $previous = $thread['gemini_interaction_id'] ?? null;
-    $tools = gemini_tools();
-    $actions = [];
-    $lastText = '';
-    $input = $message;
-    $freshRetryUsed = false;
-
-    for ($round = 0; $round < 4; $round++) {
-        $body = [
-            'model' => $model,
-            'system_instruction' => $system,
-            'input' => $input,
-            'tools' => $tools,
-            'generation_config' => [
-                'thinking_level' => 'low',
-                'max_output_tokens' => 900,
-            ],
-        ];
-        if ($previous) $body['previous_interaction_id'] = $previous;
-
-        try {
-            $resp = http_json(
-                'https://generativelanguage.googleapis.com/v1beta/interactions',
-                ['Content-Type' => 'application/json', 'Accept' => 'application/json', 'x-goog-api-key' => $key],
-                $body,
-                90
-            );
-        } catch (Throwable $e) {
-            if ($previous && !$freshRetryUsed && preg_match('/HTTP (400|404):/i', $e->getMessage())) {
-                $freshRetryUsed = true;
-                $previous = null;
-                $thread = null;
-                $input = $message;
-                $actions = [];
-                $lastText = '';
-                $round = -1;
-                continue;
-            }
-            if ($actions) {
-                return [
-                    'text' => trim($lastText) ?: 'I completed the requested workspace action, but the AI provider failed before returning its final summary.',
-                    'tool_actions' => $actions,
-                    'provider' => 'gemini',
-                    'model' => $model,
-                    'partial' => true,
-                    'provider_error' => $e->getMessage(),
-                ];
-            }
-            throw $e;
-        }
-
-        $previous = (string)($resp['id'] ?? $previous);
-        $functionResults = [];
-        $hasCall = false;
-
-        foreach (($resp['steps'] ?? []) as $step) {
-            $type = (string)($step['type'] ?? '');
-            if ($type === 'model_output') {
-                foreach (($step['content'] ?? []) as $part) {
-                    if (isset($part['text'])) $lastText .= (string)$part['text'];
-                }
-            }
-            if ($type === 'function_call') {
-                $hasCall = true;
-                $fn = trim((string)($step['name'] ?? ''));
-                $args = is_array($step['arguments'] ?? null) ? $step['arguments'] : [];
-                if ($fn === '') continue;
-
-                try {
-                    $result = execute_ai_tool($fn, $args, $u);
-                } catch (Throwable $toolError) {
-                    error_log('[DayPilot AI tool] ' . $toolError->getMessage());
-                    $result = ['ok' => false, 'error' => 'Tool execution failed safely.'];
-                }
-                $actions[] = ['tool' => $fn, 'args' => $args, 'result' => $result];
-                $functionResults[] = [
-                    'type' => 'function_result',
-                    'name' => $fn,
-                    'call_id' => (string)($step['id'] ?? ''),
-                    'result' => [[
-                        'type' => 'text',
-                        'text' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                    ]],
-                ];
-            }
-        }
-
-        if ($previous) {
-            $timestamp = now();
-            if ($thread && !empty($thread['id'])) {
-                $save = $pdo->prepare('UPDATE ai_threads SET gemini_interaction_id=?, updated_at=? WHERE id=? AND user_id=?');
-                $save->execute([$previous, $timestamp, $thread['id'], $u['id']]);
-            } else {
-                $threadId = uuid();
-                $save = $pdo->prepare('INSERT INTO ai_threads(id,user_id,gemini_interaction_id,updated_at) VALUES(?,?,?,?)');
-                $save->execute([$threadId, $u['id'], $previous, $timestamp]);
-                $thread = ['id' => $threadId, 'gemini_interaction_id' => $previous];
-            }
-        }
-
-        if (!$hasCall) break;
-        $input = $functionResults;
-    }
-
-    return [
-        'text' => trim($lastText) ?: ($actions ? 'Done.' : 'I could not produce a response.'),
-        'tool_actions' => $actions,
-        'provider' => 'gemini',
-        'model' => $model,
-        'partial' => false,
-    ];
 }
 
 function ai_call_openrouter(string $message, array $u, string $model): array {
@@ -575,6 +445,30 @@ function local_assistant_fallback(string $message, array $u): array {
         return ['text' => $reply, 'tool_actions' => [], 'provider' => 'local', 'model' => 'deterministic-fallback', 'partial' => false];
     }
 
+    if (preg_match('/\b(remind me|reminder)\b/i', $message)) {
+        $whenText = null;
+        if (preg_match('/\bat\s+([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm))\b/i', $message, $mm)) $whenText=$mm[1];
+        elseif (preg_match('/\b(tomorrow|today)\b/i', $message)) $whenText=preg_replace('/.*\b(today|tomorrow)\b.*/i','$1',strtolower($message));
+        $when=$whenText?strtotime($whenText):false;
+        if($whenText==='tomorrow')$when=strtotime('+1 day 09:00');
+        elseif($whenText==='today')$when=strtotime('+2 hours');
+        if(!$when || $when<time()+30) $when=strtotime('+1 hour');
+        $title=preg_replace('/^.*?\b(?:remind me|reminder)\b(?:\s+(?:at\s+[^ ]+(?:\s+[^ ]+)?)?)?\s*(?:to|about)?\s*/i','',$message);
+        $title=trim($title)?:'DayPilot reminder';
+        $result=execute_ai_tool('create_reminder',['title'=>$title,'remind_at'=>date('Y-m-d H:i:s',$when)],$u);
+        return ['text'=>($result['ok']??false)?'Reminder saved. Make sure push notifications are enabled on this device for delivery.':'I could not save the reminder: '.($result['error']??'unknown error').'.','tool_actions'=>[['tool'=>'create_reminder','args'=>['title'=>$title,'remind_at'=>date('Y-m-d H:i:s',$when)],'result'=>$result]],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+    }
+
+    if (preg_match('/\b(revise|revision|quiz|test me|what did i learn)\b/i', $message)) {
+        $logs = fetch_work_logs($u['id'], 14, null, 40);
+        $notes = fetch_notes($u['id']);
+        $items = [];
+        foreach (array_slice($logs, 0, 8) as $row) $items[] = '- ' . $row['title'] . ': ' . trim((string)$row['content']);
+        foreach (array_slice($notes, 0, 5) as $row) $items[] = '- Note: ' . $row['title'] . ' — ' . trim((string)$row['content']);
+        $reply = "Revision session (last 14 days)\n\n" . ($items ? implode("\n", $items) : '- No recent learning material recorded yet.') . "\n\nTry this now:\n1. Explain the top topic without looking at notes.\n2. Write one example or code snippet from memory.\n3. Capture the weak area as a learning update so it appears in the next revision session.";
+        return ['text'=>$reply,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+    }
+
     if (preg_match('/\b(analytics|progress|productivity)\b/i', $message)) {
         $result = execute_ai_tool('get_analytics', [], $u);
         $s = $result['summary'] ?? [];
@@ -596,9 +490,7 @@ function ai_orchestrate_chat(string $message, array $u): array {
 
     foreach ($plan as $item) {
         try {
-            $result = $item['provider'] === 'gemini'
-                ? ai_call_gemini($message, $u)
-                : ai_call_openrouter($message, $u, $item['model']);
+            $result = ai_call_openrouter($message, $u, $item['model']);
 
             if (!empty($result['provider'])) {
                 log_activity('ai_provider_used', 'ai', null, [
@@ -619,12 +511,47 @@ function ai_orchestrate_chat(string $message, array $u): array {
     return $fallback;
 }
 
-function ai_orchestrate_text(string $prompt, array $u): string {
-    $result = ai_orchestrate_chat($prompt, $u);
-    return trim((string)($result['text'] ?? ''));
+function local_text_fallback(string $prompt, array $u): string {
+    if (preg_match('/SOURCE:\s*(.+)$/is', $prompt, $m)) {
+        $source = trim($m[1]);
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $source, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $words = preg_split('/\W+/u', mb_strtolower($source), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $stop = ['the','and','for','that','this','with','from','have','will','your','into','what','when','where','about','then','they','them','were','been','are','was','you','not','but'];
+        $freq = [];
+        foreach ($words as $word) {
+            if (mb_strlen($word) < 4 || in_array($word, $stop, true)) continue;
+            $freq[$word] = ($freq[$word] ?? 0) + 1;
+        }
+        arsort($freq);
+        $terms = array_slice(array_keys($freq), 0, 10);
+        $out = ['# Work / Study Notes', '', '## Summary'];
+        $out[] = $sentences ? implode(' ', array_slice($sentences, 0, 3)) : mb_substr($source, 0, 600);
+        $out[] = ''; $out[] = '## Key points';
+        foreach (array_slice($sentences, 0, 8) as $sentence) $out[] = '- '.trim($sentence);
+        if (!$sentences) $out[] = '- '.mb_substr($source, 0, 600);
+        $out[] = ''; $out[] = '## Important terms';
+        $out[] = $terms ? '- '.implode(', ', $terms) : '- None extracted';
+        $out[] = ''; $out[] = '## Action items';
+        $out[] = '- Review the summary and turn unfinished items into DayPilot tasks.';
+        return implode("\n", $out);
+    }
+    return 'No online model responded. DayPilot local planning and memory features remain available.';
 }
 
-function gemini_tools(): array {
+function ai_orchestrate_text(string $prompt, array $u): string {
+    foreach (ai_provider_plan() as $item) {
+        try {
+            $result = ai_call_openrouter($prompt, $u, $item['model']);
+            $text = trim((string)($result['text'] ?? ''));
+            if ($text !== '') return $text;
+        } catch (Throwable $e) {
+            error_log('[DayPilot AI text fallback] '.$item['provider'].':'.$item['model'].' -> '.$e->getMessage());
+        }
+    }
+    return local_text_fallback($prompt, $u);
+}
+
+function ai_tools(): array {
     return [
         [
             'type' => 'function',
@@ -740,6 +667,21 @@ function gemini_tools(): array {
         ],
         [
             'type' => 'function',
+            'name' => 'create_reminder',
+            'description' => 'Schedule a reminder for the user. Use when the user asks to be reminded about work or revision.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'title' => ['type'=>'string','description'=>'Reminder message'],
+                    'remind_at' => ['type'=>'string','description'=>'ISO 8601 date/time in the user timezone'],
+                    'task_id' => ['type'=>'string','description'=>'Optional existing DayPilot task id'],
+                    'event_id' => ['type'=>'string','description'=>'Optional existing DayPilot event id'],
+                ],
+                'required' => ['title','remind_at'],
+            ],
+        ],
+        [
+            'type' => 'function',
             'name' => 'create_note',
             'description' => 'Create a note in the user workspace.',
             'parameters' => [
@@ -843,6 +785,18 @@ function execute_ai_tool(string $name, array $args, array $u): array {
             $limit=max(1,min(10,(int)($args['limit']??6)));
             return ['ok'=>true,'matches'=>search_memory($uid,$query,$limit,false)];
 
+        case 'create_reminder':
+            $title=clean_text((string)($args['title']??'Reminder'),255);
+            $when=date_sql((string)($args['remind_at']??''));
+            if($title===''||!$when||strtotime($when)<time()+30) return ['ok'=>false,'error'=>'Reminder title and a future time are required.'];
+            $taskId=!empty($args['task_id'])?clean_text((string)$args['task_id'],36):null;
+            $eventId=!empty($args['event_id'])?clean_text((string)$args['event_id'],36):null;
+            if($taskId){$check=$pdo->prepare('SELECT id FROM tasks WHERE id=? AND user_id=?');$check->execute([$taskId,$uid]);if(!$check->fetch())$taskId=null;}
+            if($eventId){$check=$pdo->prepare('SELECT id FROM events WHERE id=? AND user_id=?');$check->execute([$eventId,$uid]);if(!$check->fetch())$eventId=null;}
+            $id=uuid();$st=$pdo->prepare('INSERT INTO reminders(id,user_id,task_id,event_id,title,remind_at) VALUES(?,?,?,?,?,?)');$st->execute([$id,$uid,$taskId,$eventId,$title,$when]);
+            log_activity('ai_create_reminder','reminder',$id,['remind_at'=>$when]);
+            return ['ok'=>true,'reminder_id'=>$id,'remind_at'=>$when,'title'=>$title];
+
         case 'create_note':
             $title = clean_text((string)($args['title'] ?? ''), 255);
             $content = trim((string)($args['content'] ?? ''));
@@ -859,13 +813,6 @@ function execute_ai_tool(string $name, array $args, array $u): array {
     }
 }
 
-function gemini_chat(string $message, array $u): array {
-    return ai_orchestrate_chat($message, $u);
-}
-
-function gemini_text(string $prompt, array $u): string {
-    return ai_orchestrate_text($prompt, $u);
-}
 
 function analytics_data(string $uid, int $days = 30): array {
     $pdo=db();

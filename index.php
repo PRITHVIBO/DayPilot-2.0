@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1020">
 <meta name="description" content="DayPilot — your personal work memory, daily planner and AI assistant.">
-<link rel="manifest" href="manifest.webmanifest?v=2.1.0">
+<link rel="manifest" href="manifest.webmanifest?v=2.2.0">
 <link rel="icon" href="assets/icon.svg">
 <title>DayPilot — Work Memory & AI Assistant</title>
-<link rel="stylesheet" href="assets/styles.css?v=2.1.0">
+<link rel="stylesheet" href="assets/styles.css?v=2.2.0">
 </head>
 <body>
 <div id="app">
@@ -70,7 +70,7 @@
       <section id="toast" class="toast hidden"></section>
       <div id="viewToday" class="view">
         <section class="welcome-card panel hero-v21">
-          <div><div class="eyebrow">DAYPILOT 2.1 · WORK INTELLIGENCE</div><h2 id="welcomeHeading">Your work, remembered.</h2><p class="muted">Your recent work, unfinished tasks and saved memory all meet here.</p></div>
+          <div><div class="eyebrow">DAYPILOT 2.2 · WORK INTELLIGENCE</div><h2 id="welcomeHeading">Your work, remembered.</h2><p class="muted">Your recent work, unfinished tasks and saved memory all meet here.</p></div>
           <div class="welcome-actions"><button id="planTodayBtn" class="primary">Plan my day</button><button id="reviewTodayBtn" class="secondary">Review today</button></div>
         </section>
 
@@ -83,7 +83,7 @@
 
         <section class="dashboard-grid">
           <article class="panel focus-panel"><div class="panel-head"><div><div class="eyebrow">NEXT ACTIONS</div><h2>Today's focus</h2></div><span class="chip" id="focusMeta">Top work</span></div><div id="focusList"></div></article>
-          <article class="panel brain-panel"><div class="panel-head"><div><div class="eyebrow">DAILY CAPTURE</div><h2>What did you work on?</h2></div><span class="chip">Brain dump</span></div><p class="muted tight">Don't organize it. Just write what happened. DayPilot will turn it into useful memory.</p><form id="brainDumpForm" class="stack"><div class="split-input"><input id="brainTitle" placeholder="e.g. DayPilot backend progress"><select id="brainKind"><option value="work_log">Work update</option><option value="brain_dump">Brain dump</option><option value="learning">Learning</option><option value="blocker">Blocker</option><option value="decision">Decision</option></select></div><select id="brainProject"><option value="">No project</option></select><textarea id="brainContent" class="brain-input" rows="7" placeholder="Example: Fixed Gemini errors, researched RAG, still need embedding storage and a better mobile dashboard..."></textarea><div class="row spread"><small class="muted">Saved to your personal timeline.</small><button class="primary" type="submit">Save update</button></div></form></article>
+          <article class="panel brain-panel"><div class="panel-head"><div><div class="eyebrow">DAILY CAPTURE</div><h2>What did you work on?</h2></div><span class="chip">Brain dump</span></div><p class="muted tight">Don't organize it. Just write what happened. DayPilot will turn it into useful memory.</p><form id="brainDumpForm" class="stack"><div class="split-input"><input id="brainTitle" placeholder="e.g. DayPilot backend progress"><select id="brainKind"><option value="work_log">Work update</option><option value="brain_dump">Brain dump</option><option value="learning">Learning</option><option value="blocker">Blocker</option><option value="decision">Decision</option></select></div><select id="brainProject"><option value="">No project</option></select><textarea id="brainContent" class="brain-input" rows="7" placeholder="Example: Fixed the backend, researched RAG, still need embeddings and a better mobile dashboard..."></textarea><div class="row spread"><small class="muted">Saved to your personal timeline.</small><button class="primary" type="submit">Save update</button></div></form></article>
         </section>
 
         <section class="dashboard-grid lower-grid">
@@ -141,6 +141,6 @@
     </section>
   </div>
 </div>
-<script src="assets/app.js?v=2.1.0" defer></script>
+<script src="assets/app.js?v=2.2.0" defer></script>
 </body>
 </html>

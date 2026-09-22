@@ -1,21 +1,21 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
-header('X-DayPilot-Version: 2.1.0');
+header('X-DayPilot-Version: 2.2.0');
 
 $action = $_GET['action'] ?? 'boot';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.1.0','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.2.0','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
         $u=user();
         if ($u) ensure_v2_schema();
         $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
-            'version'=>'2.1.0',
+            'version'=>'2.2.0',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -272,14 +272,14 @@ try {
         $msg=trim((string)($in['message']??''));
         if($msg==='') json_response(['error'=>'Message is required.'],422);
         try {
-            $result=gemini_chat($msg,$u);
+            $result=ai_orchestrate_chat($msg,$u);
             json_response($result);
         } catch (Throwable $e) {
             error_log('[DayPilot AI] '.$e->getMessage());
             json_response(['error'=>'AI request failed: '.$e->getMessage()],502);
         }
     }
-    if ($action === 'ai_notes' && $method === 'POST') { $in=input_json();$source=trim((string)($in['source_text']??''));if($source==='')json_response(['error'=>'Paste some source text first.'],422);$prompt="Create concise study/work notes from the following source. Use a clear title, a one-paragraph summary, key points, important terms, and action items. Return readable Markdown only.\n\nSOURCE:\n".$source; $text=gemini_text($prompt,$u);json_response(['markdown'=>$text]); }
+    if ($action === 'ai_notes' && $method === 'POST') { $in=input_json();$source=trim((string)($in['source_text']??''));if($source==='')json_response(['error'=>'Paste some source text first.'],422);$prompt="Create concise study/work notes from the following source. Use a clear title, a one-paragraph summary, key points, important terms, and action items. Return readable Markdown only.\n\nSOURCE:\n".$source; $text=ai_orchestrate_text($prompt,$u);json_response(['markdown'=>$text]); }
 
     if ($action === 'export_ics' && $method === 'GET') {
         $month=preg_match('/^\d{4}-\d{2}$/',(string)($_GET['month']??''))?(string)$_GET['month']:date('Y-m');$from=$month.'-01 00:00:00';$to=date('Y-m-d H:i:s',strtotime($from.' +1 month'));$events=fetch_events($uid,$from,$to);$tasks=fetch_tasks($uid,'open',200);header('Content-Type:text/calendar; charset=utf-8');header('Content-Disposition: attachment; filename="daypilot-'.$month.'.ics"');echo "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//DayPilot//EN\r\nCALSCALE:GREGORIAN\r\n";foreach($events as $e){echo 'BEGIN:VEVENT\r\nUID:'.$e['id'].'@daypilot\r\nDTSTAMP:'.gmdate('Ymd\THis\Z').'\r\nDTSTART:'.gmdate('Ymd\THis\Z',strtotime($e['start_at'])).'\r\nDTEND:'.gmdate('Ymd\THis\Z',strtotime($e['end_at'])).'\r\nSUMMARY:'.ics_escape($e['title'])."\r\nEND:VEVENT\r\n";}foreach($tasks as $t){if($t['start_at']&&$t['end_at']){echo 'BEGIN:VEVENT\r\nUID:task-'.$t['id'].'@daypilot\r\nDTSTAMP:'.gmdate('Ymd\THis\Z').'\r\nDTSTART:'.gmdate('Ymd\THis\Z',strtotime($t['start_at'])).'\r\nDTEND:'.gmdate('Ymd\THis\Z',strtotime($t['end_at'])).'\r\nSUMMARY:'.ics_escape('[Task] '.$t['title'])."\r\nEND:VEVENT\r\n";}}echo "END:VCALENDAR\r\n";exit;

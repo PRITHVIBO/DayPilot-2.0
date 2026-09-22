@@ -14,7 +14,7 @@ Stores daily brain dumps, work updates, blockers, decisions, learning notes and 
 Stores one generated/local review per user and date.
 
 ### `memory_chunks`
-Stores chunked retrieval records and optional Gemini embeddings for personal RAG.
+Stores chunked retrieval records and optional OpenRouter free embeddings for personal RAG.
 
 ## Recommended Hostinger procedure
 
