@@ -179,11 +179,25 @@ function plan_day(string $userId, string $date): array {
 
 function http_json(string $url, array $headers, array $body, int $timeout = 90): array {
     $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+
+    // CURLOPT_HTTPHEADER requires an indexed array of complete header strings.
+    // Accept both ['Header: value'] and ['Header' => 'value'] forms so provider
+    // integrations cannot silently send malformed authentication headers.
+    $normalizedHeaders = [];
+    foreach ($headers as $key => $value) {
+        if (is_int($key)) {
+            $normalizedHeaders[] = (string)$value;
+        } else {
+            $normalizedHeaders[] = (string)$key . ': ' . (string)$value;
+        }
+    }
+    $normalizedHeaders[] = 'Content-Length: ' . strlen($json);
+
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => array_merge($headers, ['Content-Length: ' . strlen($json)]),
+        CURLOPT_HTTPHEADER => $normalizedHeaders,
         CURLOPT_POSTFIELDS => $json,
         CURLOPT_TIMEOUT => $timeout,
         CURLOPT_CONNECTTIMEOUT => 10,
@@ -312,18 +326,17 @@ function ai_call_openrouter(string $message, array $u, string $model): array {
             'messages' => $messages,
             'tools' => $tools,
             'tool_choice' => 'auto',
-            'temperature' => 0.2,
-            'max_tokens' => 900,
+            'max_completion_tokens' => 1200,
         ];
         $headers = [
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-            'Authorization' => 'Bearer ' . $key,
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . $key,
         ];
         $referer = trim((string)cfg('ai.openrouter.site_url', cfg('app.base_url', 'https://projects.bhavyagupta.space')));
         $appName = trim((string)cfg('ai.openrouter.app_name', 'DayPilot'));
-        if ($referer !== '') $headers['HTTP-Referer'] = $referer;
-        if ($appName !== '') $headers['X-Title'] = $appName;
+        if ($referer !== '') $headers[] = 'HTTP-Referer: ' . $referer;
+        if ($appName !== '') $headers[] = 'X-Title: ' . $appName;
 
         try {
             $resp = http_json('https://openrouter.ai/api/v1/chat/completions', $headers, $body, 90);
@@ -406,6 +419,11 @@ function ai_call_openrouter(string $message, array $u, string $model): array {
     ];
 }
 
+function fmt_local_for_ai(string $value): string {
+    $ts=strtotime($value);
+    return $ts===false ? $value : date('M j, g:i A',$ts);
+}
+
 function local_assistant_fallback(string $message, array $u): array {
     $text = trim(mb_strtolower($message));
     $actions = [];
@@ -466,6 +484,40 @@ function local_assistant_fallback(string $message, array $u): array {
         foreach (array_slice($logs, 0, 8) as $row) $items[] = '- ' . $row['title'] . ': ' . trim((string)$row['content']);
         foreach (array_slice($notes, 0, 5) as $row) $items[] = '- Note: ' . $row['title'] . ' — ' . trim((string)$row['content']);
         $reply = "Revision session (last 14 days)\n\n" . ($items ? implode("\n", $items) : '- No recent learning material recorded yet.') . "\n\nTry this now:\n1. Explain the top topic without looking at notes.\n2. Write one example or code snippet from memory.\n3. Capture the weak area as a learning update so it appears in the next revision session.";
+        return ['text'=>$reply,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+    }
+
+    if (preg_match('/\b(focus|priorities|priority)\b.*\b(today|now)\b|\bwhat should i focus on today\b/i', $message)) {
+        $tasks = fetch_tasks($u['id'], 'open', 12);
+        $top = array_slice($tasks, 0, 3);
+        if (!$top) {
+            return ['text'=>'You have no open tasks yet. Capture the next outcome you want to complete today, and DayPilot will use it for your plan.','tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+        }
+        $lines=[];
+        foreach($top as $index=>$task){
+            $meta=$task['priority'];
+            if(!empty($task['due_at'])) $meta.=' · due '.fmt_local_for_ai((string)$task['due_at']);
+            $lines[]=(string)($index+1).'. '.$task['title'].' ('.$meta.')';
+        }
+        $reply="Today's suggested focus based on your recorded open work:\n\n".implode("\n",$lines)."\n\nStart with #1, then re-plan after it is complete. You can also say 'plan my day' to schedule these tasks.";
+        return ['text'=>$reply,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+    }
+
+    if (preg_match('/\b(resume|where did i stop|yesterday)\b/i', $message)) {
+        $logs=fetch_work_logs($u['id'],2,null,20);
+        $tasks=fetch_tasks($u['id'],'open',10);
+        $lines=[];
+        foreach(array_slice($logs,0,5) as $row) $lines[]='- '.$row['title'].': '.trim((string)$row['content']);
+        $taskLines=[];
+        foreach(array_slice($tasks,0,5) as $row) $taskLines[]='- '.$row['title'].' ('.$row['priority'].')';
+        $reply="Recorded recent work:\n".($lines?implode("\n",$lines):'- No recent work log recorded.')."\n\nOpen work:\n".($taskLines?implode("\n",$taskLines):'- No open tasks.');
+        return ['text'=>$reply,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+    }
+
+    if (preg_match('/\b(weekly recap|this week|accomplished this week|what did i accomplish)\b/i', $message)) {
+        $logs=fetch_work_logs($u['id'],7,null,30);
+        $lines=[]; foreach(array_slice($logs,0,10) as $row) $lines[]='- '.$row['title'].': '.trim((string)$row['content']);
+        $reply="Recorded work from the last 7 days:\n\n".($lines?implode("\n",$lines):'- No recent work logs recorded yet.');
         return ['text'=>$reply,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
     }
 

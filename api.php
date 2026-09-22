@@ -8,14 +8,14 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.2.0','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.2.1','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
         $u=user();
         if ($u) ensure_v2_schema();
         $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
-            'version'=>'2.2.0',
+            'version'=>'2.2.1',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -275,8 +275,16 @@ try {
             $result=ai_orchestrate_chat($msg,$u);
             json_response($result);
         } catch (Throwable $e) {
-            error_log('[DayPilot AI] '.$e->getMessage());
-            json_response(['error'=>'AI request failed: '.$e->getMessage()],502);
+            error_log('[DayPilot AI] '.$e->getMessage().'\n'.$e->getTraceAsString());
+            try {
+                $fallback = local_assistant_fallback($msg,$u);
+                $fallback['online_error'] = true;
+                $fallback['provider_error'] = 'Online AI provider request failed; local DayPilot fallback used.';
+                json_response($fallback,200);
+            } catch (Throwable $fallbackError) {
+                error_log('[DayPilot AI fallback] '.$fallbackError->getMessage());
+                json_response(['error'=>'AI temporarily unavailable. Basic DayPilot features remain available.'],503);
+            }
         }
     }
     if ($action === 'ai_notes' && $method === 'POST') { $in=input_json();$source=trim((string)($in['source_text']??''));if($source==='')json_response(['error'=>'Paste some source text first.'],422);$prompt="Create concise study/work notes from the following source. Use a clear title, a one-paragraph summary, key points, important terms, and action items. Return readable Markdown only.\n\nSOURCE:\n".$source; $text=ai_orchestrate_text($prompt,$u);json_response(['markdown'=>$text]); }

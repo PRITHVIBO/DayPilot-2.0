@@ -40,7 +40,7 @@
 
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
-      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.1</small></div>
+      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.2.1</small></div>
       <div class="sidebar-profile">
         <div class="avatar" id="avatar">U</div>
         <div><strong id="userName">User</strong><span id="syncState">Online</span></div>
