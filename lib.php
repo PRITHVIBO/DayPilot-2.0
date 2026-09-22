@@ -177,7 +177,7 @@ function plan_day(string $userId, string $date): array {
     return $blocks;
 }
 
-function http_json(string $url, array $headers, array $body, int $timeout = 90): array {
+function http_json(string $url, array $headers, array $body, int $timeout = 30): array {
     $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
 
     // CURLOPT_HTTPHEADER requires an indexed array of complete header strings.
@@ -502,6 +502,12 @@ function local_assistant_fallback(string $message, array $u): array {
         return ['text'=>$reply,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
     }
 
+    if (preg_match('/\b(review today|daily review|review my day|end of day review)\b/i', $message)) {
+        $date = date('Y-m-d');
+        $review = deterministic_daily_review($u['id'], $date);
+        return ['text'=>$review,'tool_actions'=>[],'provider'=>'local','model'=>'deterministic-fallback','partial'=>false];
+    }
+
     if (preg_match('/\b(resume|where did i stop|yesterday)\b/i', $message)) {
         $logs=fetch_work_logs($u['id'],2,null,20);
         $tasks=fetch_tasks($u['id'],'open',10);
@@ -536,30 +542,33 @@ function local_assistant_fallback(string $message, array $u): array {
 }
 
 function ai_orchestrate_chat(string $message, array $u): array {
-    // Handle deterministic workspace actions first. These do not depend on an AI
-    // provider and therefore keep DayPilot useful when providers rate-limit,
-    // reject tool calls, or are temporarily unavailable.
+    $text = trim(mb_strtolower($message));
+
+    // Core DayPilot commands are local-first. They must remain responsive even
+    // when a free online model is queued, rate-limited, or unavailable.
+    $localFirst = preg_match('/(?:plan my day|plan today|schedule .*\b(today|tomorrow)\b|what should i focus on today|focus .*\b(today|now)\b|where did i stop|resume yesterday|weekly recap|what did i accomplish|this week|revise me|test me|what did i learn|remind me|create a reminder|list .*tasks?|show .*tasks?)/i', $message);
     $local = local_assistant_fallback($message, $u);
-    if (($local['provider'] ?? '') === 'local' && !empty($local['tool_actions'])) {
+    $defaultLocal = 'The AI providers are unavailable right now. I can still add tasks, list open work, plan today/tomorrow, and show basic analytics while the provider is unavailable.';
+    if ($localFirst || (($local['text'] ?? '') !== $defaultLocal && ($local['provider'] ?? '') === 'local')) {
         return $local;
     }
 
-    // For conversational work, ask the provider for plain text only. Tool
-    // calling is intentionally avoided in the primary path because free-model
-    // compatibility varies between providers. Workspace mutations use the
-    // deterministic router above.
+    // General conversation uses plain text only; tool-calling differences among
+    // free models cannot break the application.
     $plan = ai_provider_plan();
     $errors = [];
-    foreach ($plan as $item) {
+    foreach (array_slice($plan, 0, 2) as $item) {
         try {
             $result = ai_call_openrouter_text($message, $u, $item['model']);
             if ($result !== '') {
+                try { $sources = memory_context($u['id'], $message, 6)['sources'] ?? []; }
+                catch (Throwable $e) { $sources = []; error_log('[DayPilot RAG after AI] '.$e->getMessage()); }
                 return [
                     'text' => $result,
                     'tool_actions' => [],
                     'provider' => 'openrouter',
                     'model' => $item['model'],
-                    'rag_sources' => memory_context($u['id'], $message, 6)['sources'] ?? [],
+                    'rag_sources' => $sources,
                     'partial' => false,
                 ];
             }
@@ -589,7 +598,7 @@ function ai_call_openrouter_text(string $message, array $u, string $model): stri
             ['role' => 'user', 'content' => $message],
         ],
         'temperature' => 0.2,
-        'max_tokens' => 1400,
+        'max_tokens' => 700,
     ];
     $headers = [
         'Content-Type: application/json',
@@ -601,7 +610,7 @@ function ai_call_openrouter_text(string $message, array $u, string $model): stri
     if ($referer !== '') $headers[] = 'HTTP-Referer: '.$referer;
     if ($appName !== '') $headers[] = 'X-Title: '.$appName;
 
-    $resp = http_json('https://openrouter.ai/api/v1/chat/completions', $headers, $body, 60);
+    $resp = http_json('https://openrouter.ai/api/v1/chat/completions', $headers, $body, 20);
     $content = $resp['choices'][0]['message']['content'] ?? '';
     if (is_array($content)) {
         $parts=[];
