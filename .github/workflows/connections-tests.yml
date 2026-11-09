@@ -38,7 +38,7 @@ jobs:
           find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
           find assets -name '*.js' -print0 | xargs -0 -n1 node --check
       - name: Tracker summaries and private-field exclusion
-        run: node --test tests/tracker-summary.test.js
+        run: node --test tests/*.test.js
       - name: PHP validation and alert rules
         run: php tests/connections-unit.php
       - name: Initialize disposable database

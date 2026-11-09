@@ -17,7 +17,7 @@ const api=async(action,options={})=>{
   if(method!=='GET'&&!headers['Content-Type'])headers['Content-Type']='application/json';
   if(method!=='GET'&&state.csrf)headers['X-CSRF-Token']=state.csrf;
   const raw=String(action);const match=raw.match(/^([^?&]+)(.*)$/);const base=match?match[1]:raw;const suffix=match?match[2]:'';const querySuffix=suffix?(suffix[0]==='?'?'&'+suffix.slice(1):suffix):'';
-  const qs=method==='GET'?((querySuffix?'&':'?')+'_dp='+Date.now()):'';
+  const qs=method==='GET'?'&_dp='+Date.now():'';
   const url=`api.php?action=${encodeURIComponent(base)}${querySuffix}${qs}`;
   const request={...options,headers,credentials:'same-origin',cache:'no-store'};
   let timer=null;

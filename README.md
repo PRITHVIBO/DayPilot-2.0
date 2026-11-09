@@ -1,4 +1,6 @@
-# DayPilot 2.3.3 — Personal Work Intelligence System
+# DayPilot 2.4 — Connected Work Dashboard
+
+The new **Overview** and **Connections** screens connect GitHub project health and the existing DSA, SQL, web, and cloud trackers. See [CONNECTED-DASHBOARD.md](CONNECTED-DASHBOARD.md) for Hostinger deployment, scoped tracker connections, graphs, and scheduled alerts.
 
 DayPilot is an offline-first PWA for daily work capture, tasks, planning, calendar, notes, reminders, analytics, AI assistance and personal work memory. The 2.1 release hardens a RAG-oriented memory layer so daily brain dumps, work logs, decisions, blockers, learning notes, projects and daily reviews can be retrieved as context for future planning and questions.
 
