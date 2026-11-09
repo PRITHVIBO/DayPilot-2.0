@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
-header('X-DayPilot-Version: 2.3.3');
+header('X-DayPilot-Version: 2.4.0');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Vary: Cookie');
@@ -16,7 +16,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     if ($action === 'csrf') json_response(['csrf'=>csrf_token()]);
-    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.3.3','database'=>'ok','time'=>now()]); }
+    if ($action === 'health' && $method === 'GET') { db()->query('SELECT 1'); json_response(['ok'=>true,'service'=>'daypilot','version'=>'2.4.0','database'=>'ok','time'=>now()]); }
     if ($action === 'boot') {
         $u=user();
         if ($u) {
@@ -25,7 +25,7 @@ try {
         $providers = ai_provider_plan();
         json_response([
             'ok'=>true,
-            'version'=>'2.3.3',
+            'version'=>'2.4.0',
             'user'=>$u,
             'csrf'=>csrf_token(),
             'vapid_public_key'=>(string)cfg('push.public_key'),
@@ -62,6 +62,9 @@ try {
     $u=require_user(); $uid=$u['id']; $pdo=db();
     try { ensure_v2_schema(); } catch (Throwable $e) { error_log('[DayPilot schema] '.$e->getMessage()); }
 
+
+    require_once __DIR__ . '/connections.php';
+    connections_dispatch($action, $method, $uid);
 
     if ($action === 'tasks' && $method === 'GET') json_response(['tasks'=>fetch_tasks($uid, isset($_GET['status'])?(string)$_GET['status']:null, (int)($_GET['limit']??200))]);
     if ($action === 'task_create' && $method === 'POST') {

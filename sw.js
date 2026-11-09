@@ -1,5 +1,5 @@
-const CACHE='daypilot-shell-v2-3-2';
-const CORE=['./','index.php','assets/app.js?v=2.3.3','assets/styles.css?v=2.3.3','manifest.webmanifest','assets/icon.svg','assets/icon-192.png','assets/icon-512.png'];
+const CACHE='daypilot-shell-v2-4-0';
+const CORE=['./','index.php','assets/app.js?v=2.4.0','assets/styles.css?v=2.4.0','assets/connections.js?v=2.4.0','assets/control-center.css?v=2.4.0','manifest.webmanifest','assets/icon.svg','assets/icon-192.png','assets/icon-512.png'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));
@@ -11,7 +11,7 @@ self.addEventListener('fetch',event=>{
   const req=event.request;
   if(req.method!=='GET') return;
   const url=new URL(req.url);
-  if(url.pathname.endsWith('/api.php') || url.pathname.endsWith('/health')) return;
+  if(url.pathname.endsWith('/api.php') || url.pathname.endsWith('/boot.php') || url.pathname.endsWith('/tracker_ingest.php') || url.pathname.endsWith('/health')) return;
   event.respondWith(
     caches.match(req).then(cached=>cached||fetch(req).then(res=>{
       if(res.ok&&url.origin===location.origin){

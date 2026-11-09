@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1020">
 <meta name="description" content="DayPilot — your personal work memory, daily planner and AI assistant.">
-<link rel="manifest" href="manifest.webmanifest?v=2.3.3">
+<link rel="manifest" href="manifest.webmanifest?v=2.4.0">
 <link rel="icon" href="assets/icon.svg">
 <title>DayPilot — Work Memory & AI Assistant</title>
-<link rel="stylesheet" href="assets/styles.css?v=2.3.3">
+<link rel="stylesheet" href="assets/styles.css?v=2.4.0">
+<link rel="stylesheet" href="assets/control-center.css?v=2.4.0">
 </head>
 <body>
 <div id="app">
@@ -40,19 +41,21 @@
 
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
-      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.3.3</small></div>
+      <div class="brand side-brand"><img src="assets/icon.svg" alt="" class="brand-icon"><span>DayPilot</span><small class="version-tag">2.4.0</small></div>
       <div class="sidebar-profile">
         <div class="avatar" id="avatar">U</div>
         <div><strong id="userName">User</strong><span id="syncState">Online</span></div>
       </div>
       <nav class="nav" id="sideNav">
-        <button data-view="today" class="nav-item active"><span class="nav-icon">⌂</span>Today</button>
+        <button data-view="dashboard" class="nav-item active"><span class="nav-icon">◈</span>Overview</button>
+        <button data-view="today" class="nav-item"><span class="nav-icon">⌂</span>Today</button>
         <button data-view="tasks" class="nav-item"><span class="nav-icon">✓</span>Tasks</button>
         <button data-view="calendar" class="nav-item"><span class="nav-icon">◷</span>Calendar</button>
         <button data-view="memory" class="nav-item"><span class="nav-icon">✦</span>Memory</button>
         <button data-view="notes" class="nav-item"><span class="nav-icon">▤</span>Notes</button>
         <button data-view="insights" class="nav-item"><span class="nav-icon">◒</span>Insights</button>
         <button data-view="assistant" class="nav-item"><span class="nav-icon">AI</span>AI Assistant</button>
+        <button data-view="connections" class="nav-item"><span class="nav-icon">↗</span>Connections</button>
         <button data-view="settings" class="nav-item"><span class="nav-icon">⚙</span>Settings</button>
       </nav>
       <div class="sidebar-bottom">
@@ -117,6 +120,8 @@
         <section class="notes-layout"><article class="panel"><div class="panel-head"><div><div class="eyebrow">KNOWLEDGE</div><h2>Notes</h2></div><button id="newNoteBtn" class="primary small">+ Note</button></div><div id="notesList" class="list"></div></article><article class="panel note-editor-panel"><div class="panel-head"><div><div class="eyebrow">NOTE EDITOR</div><h2 id="noteEditorTitle">New note</h2></div><button id="indexNoteBtn" type="button" class="chip">Index memory</button></div><form id="noteForm" class="stack"><input id="noteTitle" placeholder="Note title" required><input id="noteTags" placeholder="Tags, comma separated"><textarea id="noteContent" class="note-editor" placeholder="Write notes here..."></textarea><div class="row spread"><button class="secondary" id="aiNoteBtn" type="button">Prepare notes with AI</button><button class="primary" type="submit">Save note</button></div></form></article></section>
       </div>
 
+      <?php require __DIR__ . '/views/control-center.html'; ?>
+
       <div id="viewInsights" class="view hidden">
         <section class="stats-grid four"><article class="stat-card"><span>Completion rate</span><strong id="insightRate">0%</strong></article><article class="stat-card"><span>Focus minutes</span><strong id="insightFocus">0</strong></article><article class="stat-card"><span>Overdue</span><strong id="insightOverdue">0</strong></article><article class="stat-card"><span>Work updates</span><strong id="insightLogs">0</strong></article></section>
         <section class="insights-grid"><article class="panel"><div class="panel-head"><div><div class="eyebrow">30-DAY TREND</div><h2>Completed work</h2></div><span class="muted">Recorded task completions</span></div><canvas id="analyticsChart" height="220"></canvas></article><article class="panel"><div class="panel-head"><div><div class="eyebrow">PRIORITIES</div><h2>Work mix</h2></div></div><div id="priorityAnalytics" class="priority-bars"></div></article></section>
@@ -130,7 +135,7 @@
       <div id="viewSettings" class="view hidden"><section class="settings-grid"><article class="panel"><div class="panel-head"><div><div class="eyebrow">DEVICE</div><h2>Notifications</h2></div><span id="pushState" class="chip">Not enabled</span></div><p class="muted">Enable push so reminders can reach your phone or laptop.</p><button id="enablePushBtn" class="primary">Enable notifications</button></article><article class="panel"><div class="panel-head"><div><div class="eyebrow">REMINDERS</div><h2>Schedule a reminder</h2></div><span class="chip">5-minute cron</span></div><form id="reminderForm" class="stack"><select id="reminderTask"><option value="">Choose a task</option></select><input id="reminderWhen" type="datetime-local" required><input id="reminderTitle" placeholder="Reminder message" required><button class="secondary" type="submit">Schedule reminder</button></form><div id="reminderList" class="list"></div></article><article class="panel"><div class="panel-head"><div><div class="eyebrow">WORKSPACE</div><h2>Environment</h2></div></div><div class="settings-list"><div><span>Account</span><strong id="settingsEmail">—</strong></div><div><span>Timezone</span><strong id="settingsTimezone">Asia/Kolkata</strong></div><div><span>AI providers</span><strong id="settingsAi">Checking…</strong></div><div><span>RAG semantic queries</span><strong id="settingsRag">Off</strong></div><div><span>Offline mode</span><strong>Enabled</strong></div></div></article></section></div>
     </main>
 
-    <nav class="mobile-nav" id="mobileNav"><button data-view="today"><span>⌂</span><small>Today</small></button><button id="mobileCaptureBtn"><span>＋</span><small>Capture</small></button><button data-view="tasks"><span>✓</span><small>Tasks</small></button><button data-view="memory"><span>✦</span><small>Memory</small></button><button data-view="assistant"><span>AI</span><small>Ask</small></button></nav>
+    <nav class="mobile-nav" id="mobileNav"><button data-view="dashboard"><span>◈</span><small>Overview</small></button><button id="mobileCaptureBtn"><span>＋</span><small>Capture</small></button><button data-view="tasks"><span>✓</span><small>Tasks</small></button><button data-view="memory"><span>✦</span><small>Memory</small></button><button data-view="assistant"><span>AI</span><small>Ask</small></button></nav>
   </div>
 
   <div id="captureModal" class="modal hidden" aria-hidden="true">
@@ -141,6 +146,7 @@
     </section>
   </div>
 </div>
-<script src="assets/app.js?v=2.3.3" defer></script>
+<script src="assets/app.js?v=2.4.0" defer></script>
+<script src="assets/connections.js?v=2.4.0" defer></script>
 </body>
 </html>
